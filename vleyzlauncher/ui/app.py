@@ -603,10 +603,10 @@ class Launcher(tk.Tk):
             vid = str(version.get("id") or "")
             selected = vid == self.game
             tag = f"ver_{vid.replace('.', '_')}"
-            draw.rr(cv, x0, y0, x0 + CELL_W, y0 + CELL_H, 10,
-                    fill=theme.SELECT_BG if selected else theme.CARD,
-                    outline=theme.ACCENT if selected else theme.BORDER, width=2 if selected else 1,
-                    tags=("page", tag))
+            border = draw.rr(cv, x0, y0, x0 + CELL_W, y0 + CELL_H, 10,
+                             fill=theme.SELECT_BG if selected else theme.CARD,
+                             outline=theme.ACCENT if selected else theme.BORDER, width=2 if selected else 1,
+                             tags=("page", tag))
             draw.text(cv, x0 + 12, y0 + 22, vid, 10,
                       theme.ACCENT if selected else theme.TEXT, "bold", "w", ("page", tag))
             draw.text(cv, x0 + 12, y0 + 40, (version.get("releaseTime") or "")[:10], 7,
@@ -616,10 +616,10 @@ class Launcher(tk.Tk):
                 draw.text(cv, x0 + CELL_W - 21, y0 + 41, f"{len(self.installed_map[vid])}", 7,
                           theme.DIM, "normal", "e", ("page", tag))
             cv.tag_bind(tag, "<Button-1>", lambda e, v=vid: self._select_game(v))
-            cv.tag_bind(tag, "<Enter>", lambda e, t=tag, s=selected: None if s else
-                        (cv.itemconfigure(t, outline=theme.BORDER_HOVER), cv.configure(cursor="hand2")))
-            cv.tag_bind(tag, "<Leave>", lambda e, t=tag, s=selected: None if s else
-                        (cv.itemconfigure(t, outline=theme.BORDER), cv.configure(cursor="")))
+            cv.tag_bind(tag, "<Enter>", lambda e, b=border, s=selected: None if s else
+                        (cv.itemconfigure(b, outline=theme.BORDER_HOVER), cv.configure(cursor="hand2")))
+            cv.tag_bind(tag, "<Leave>", lambda e, b=border, s=selected: None if s else
+                        (cv.itemconfigure(b, outline=theme.BORDER), cv.configure(cursor="")))
 
     def _filtered(self) -> list[dict]:
         items = self.releases or []
