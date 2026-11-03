@@ -8,7 +8,6 @@
 
 [![Release](https://img.shields.io/github/v/release/Vleyz25/VleyzLauncher?style=flat-square)](https://github.com/Vleyz25/VleyzLauncher/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/Vleyz25/VleyzLauncher/total?style=flat-square)](https://github.com/Vleyz25/VleyzLauncher/releases)
-[![CI](https://github.com/Vleyz25/VleyzLauncher/actions/workflows/ci.yml/badge.svg)](https://github.com/Vleyz25/VleyzLauncher/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/Vleyz25/VleyzLauncher?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?style=flat-square&logo=windows&logoColor=white)](#)
@@ -79,7 +78,7 @@ python -m PyInstaller --noconfirm VleyzLauncher.spec
 python -m PyInstaller --noconfirm VleyzLauncherSetup.spec
 ```
 
-Готовые файлы появятся в `dist/`. Релиз на GitHub собирается автоматически по тегу `v*`.
+Готовые файлы появятся в `dist/`. Portable-архив и SHA256 для релиза собираются теми же командами и `Compress-Archive`.
 
 ## Безопасность и приватность
 
