@@ -244,11 +244,16 @@ class Installer:
 
     # ------------------------------------------------------------ установка
 
-    def install(self, game: str, loader: str = "vanilla") -> dict:
-        """Ставит ваниль и, если выбрано, слой загрузчика поверх неё."""
+    def install(self, game: str, loader: str = "vanilla", repair: bool = False) -> dict:
+        """Ставит ваниль и, если выбрано, слой загрузчика поверх неё.
+
+        repair=True проверяет и докачивает файлы уже установленной версии,
+        не запуская заново установщик Forge/NeoForge.
+        """
         progress = self.progress
         progress.reset()
         self._check_cancel()
+        existing = loaders.find_installed(self.data_dir, game, loader) if repair else ""
 
         plan = loaders.plan(self.data_dir, game, loader)
         progress.set_stage(f"Minecraft {game}", "готовлю список файлов")
@@ -276,7 +281,7 @@ class Installer:
 
         final_id = game
         if plan["kind"] == "installer":
-            final_id = self._run_installer(plan, required_java)
+            final_id = existing or self._run_installer(plan, required_java)
         elif plan["kind"] == "profile":
             final_id = plan["version_id"]
             self._write_marker(f"versions/{final_id}", self._dir_size(self.data_dir / "versions" / final_id))

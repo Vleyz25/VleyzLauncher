@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 
 from .. import APP_VERSION
 from . import net
@@ -43,24 +44,25 @@ def check(current: str = APP_VERSION) -> dict | None:
     tag = str(data.get("tag_name") or "").strip()
     if not is_newer(tag, current):
         return None
-    setup_url = ""
+    setup = None
     executables = []
     for asset in data.get("assets") or []:
         name = str(asset.get("name") or "")
         if not name.lower().endswith(".exe"):
             continue
-        url = str(asset.get("browser_download_url") or "")
-        executables.append(url)
+        executables.append(asset)
         if "setup" in name.lower():
-            setup_url = url
+            setup = asset
             break
-    if not setup_url and executables:
-        setup_url = executables[0]
+    if setup is None and executables:
+        setup = executables[0]
     return {
         "version": tag.lstrip("vV") or tag,
         "tag": tag,
         "url": str(data.get("html_url") or PAGE_URL),
-        "setup_url": setup_url,
+        "setup_url": str((setup or {}).get("browser_download_url") or ""),
+        "setup_size": int((setup or {}).get("size") or 0),
+        "digest": str((setup or {}).get("digest") or ""),
         "notes": str(data.get("body") or "").strip()[:700],
         "published_at": str(data.get("published_at") or ""),
     }
@@ -68,3 +70,36 @@ def check(current: str = APP_VERSION) -> dict | None:
 
 def download_url(info: dict) -> str:
     return str(info.get("setup_url") or info.get("url") or PAGE_URL)
+
+
+def download_update(info: dict, dest: Path, on_bytes=None, cancel=None) -> Path:
+    """Скачать установщик обновления и проверить его размер и SHA256."""
+    url = str(info.get("setup_url") or "")
+    if not url:
+        raise net.DownloadError("в последнем релизе нет установщика")
+    dest = Path(dest)
+    net.download(
+        url,
+        dest,
+        size=int(info.get("setup_size") or 0) or None,
+        on_bytes=on_bytes,
+        cancel=cancel,
+    )
+    digest = str(info.get("digest") or "")
+    if digest.startswith("sha256:"):
+        if net.sha256_file(dest) != digest.split(":", 1)[1].lower():
+            dest.unlink(missing_ok=True)
+            raise net.DownloadError("SHA256 установщика не совпал")
+    return dest
+
+
+def install_command(setup: Path, target: Path) -> list[str]:
+    """Команда тихой установки поверх текущей папки с перезапуском.
+
+    cmd ждёт пару секунд, чтобы лаунчер успел закрыться и отпустил exe.
+    """
+    inner = (
+        f'timeout /t 2 /nobreak >nul & "{setup}" '
+        f'--silent --dir "{target}" --no-shortcuts --run'
+    )
+    return ["cmd", "/c", inner]

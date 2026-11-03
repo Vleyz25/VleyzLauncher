@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import http.server
 import json
 import os
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -12,7 +14,30 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from vleyzlauncher import APP_VERSION  # noqa: E402
-from vleyzlauncher.core import paths, profiles, secure, updates  # noqa: E402
+from vleyzlauncher.core import net, paths, profiles, secure, updates  # noqa: E402
+
+
+class RangeHandler(http.server.BaseHTTPRequestHandler):
+    payload = b""
+    ranges: list[str | None] = []
+    support_range = True
+
+    def do_GET(self) -> None:  # noqa: N802 - имя задаёт http.server
+        type(self).ranges.append(self.headers.get("Range"))
+        start = 0
+        header = self.headers.get("Range")
+        if self.support_range and header and header.startswith("bytes="):
+            start = int(header.split("=", 1)[1].split("-", 1)[0])
+        body = self.payload[start:]
+        self.send_response(206 if start else 200)
+        if start:
+            self.send_header("Content-Range", f"bytes {start}-{len(self.payload) - 1}/{len(self.payload)}")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args) -> None:
+        pass
 
 
 class ConfigTests(unittest.TestCase):
@@ -75,8 +100,8 @@ class SecureTests(unittest.TestCase):
 class UpdateTests(unittest.TestCase):
     def test_version_compare(self) -> None:
         self.assertTrue(updates.is_newer("v1.10.0", "1.6.0"))
-        self.assertTrue(updates.is_newer("1.6.1", APP_VERSION))
-        self.assertFalse(updates.is_newer("v1.5", APP_VERSION))
+        self.assertTrue(updates.is_newer("1.6.1", "1.6.0"))
+        self.assertFalse(updates.is_newer("v1.5", "1.6.0"))
         self.assertFalse(updates.is_newer("", APP_VERSION))
         self.assertFalse(updates.is_newer("1.6", "1.6.0"))
 
@@ -97,6 +122,60 @@ class UpdateTests(unittest.TestCase):
     def test_network_error_is_quiet(self) -> None:
         with mock.patch.object(updates.net, "fetch_json", side_effect=updates.net.DownloadError("нет сети")):
             self.assertIsNone(updates.check("1.6.0"))
+
+    def test_install_command_is_silent_and_targeted(self) -> None:
+        command = updates.install_command(Path("C:/Temp/Setup.exe"), Path("C:/Apps/Vleyz"))
+        self.assertEqual(command[0], "cmd")
+        line = command[2]
+        self.assertIn("--silent", line)
+        self.assertIn("--dir", line)
+        self.assertIn("--no-shortcuts", line)
+        self.assertIn("Setup.exe", line)
+
+
+class DownloadTests(unittest.TestCase):
+    def serve(self, handler) -> str:
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return f"http://127.0.0.1:{server.server_address[1]}/file.bin"
+
+    def test_resume_uses_range_and_counts_offset(self) -> None:
+        payload = bytes(range(256)) * 400
+        RangeHandler.payload = payload
+        RangeHandler.ranges = []
+        RangeHandler.support_range = True
+        url = self.serve(RangeHandler)
+
+        with tempfile.TemporaryDirectory() as folder:
+            dest = Path(folder) / "file.bin"
+            dest.with_name("file.bin.part").write_bytes(payload[:40000])
+            calls: list[int] = []
+            net.download(url, dest, size=len(payload), on_bytes=calls.append)
+
+            self.assertEqual(dest.read_bytes(), payload)
+            self.assertFalse(dest.with_name("file.bin.part").exists())
+            self.assertIn("bytes=40000-", RangeHandler.ranges)
+            self.assertEqual(sum(calls), len(payload))
+
+    def test_server_without_range_restarts_cleanly(self) -> None:
+        class PlainHandler(RangeHandler):
+            support_range = False
+
+        payload = b"abcdef" * 20000
+        PlainHandler.payload = payload
+        PlainHandler.ranges = []
+        url = self.serve(PlainHandler)
+
+        with tempfile.TemporaryDirectory() as folder:
+            dest = Path(folder) / "file.bin"
+            dest.with_name("file.bin.part").write_bytes(payload[:30000])
+            calls: list[int] = []
+            net.download(url, dest, size=len(payload), on_bytes=calls.append)
+
+            self.assertEqual(dest.read_bytes(), payload)
+            self.assertEqual(sum(calls), len(payload))
 
 
 class ProfileTests(unittest.TestCase):
