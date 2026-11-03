@@ -1,4 +1,4 @@
 __all__ = ["core", "ui"]
 APP_NAME = "Vleyz Launcher"
-APP_VERSION = "1.6.0"
+APP_VERSION = "1.7.0"
 AUTHOR = "Сделал vleyz"

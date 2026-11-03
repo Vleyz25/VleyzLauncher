@@ -246,6 +246,7 @@
       <div class="card reveal"><div class="ico">🔐</div><h3>Аккаунты и приватность</h3><p>Вход Microsoft по коду устройства и Ely.by. Пароли и токены шифруются Windows DPAPI, телеметрии нет.</p></div>
       <div class="card reveal"><div class="ico">🎛️</div><h3>Настройки</h3><p>Никнейм, оперативная память от 1 до 12 ГБ, своя папка игры и путь к Java. Обычный .minecraft не трогается — твои миры на месте.</p></div>
       <div class="card reveal"><div class="ico">📊</div><h3>Прогресс в реальном времени</h3><p>Файлы, проценты, скорость и текущий этап загрузки — всегда видно, что происходит и сколько осталось.</p></div>
+      <div class="card reveal"><div class="ico">🔄</div><h3>Обновление и ремонт</h3><p>Лаунчер сам скачивает и ставит обновление, а кнопка «Проверить файлы» докачивает повреждённое.</p></div>
     </div>
   </div>
 </section>
@@ -307,7 +308,7 @@
     <div class="faq">
       <details class="reveal"><summary>Куда скачивается игра?</summary><div class="a">По умолчанию в <code>%APPDATA%\VleyzLauncher\minecraft</code>. Папку можно поменять в настройках. Твой обычный <code>.minecraft</code> лаунчер не трогает.</div></details>
       <details class="reveal"><summary>Где настройки, аккаунты и логи?</summary><div class="a">В <code>%APPDATA%\VleyzLauncher</code>: <code>config.json</code> и папка <code>logs</code>. Пароль и токены Ely.by, токены Microsoft шифруются через Windows DPAPI и не читаются на другом ПК.</div></details>
-      <details class="reveal"><summary>Как обновляться?</summary><div class="a">Лаунчер сам проверяет релизы на GitHub и показывает кнопку «Обновление» в меню. Можно и просто поставить новый <code>VleyzLauncher-Setup.exe</code> поверх — профили, миры и настройки сохранятся.</div></details>
+      <details class="reveal"><summary>Как обновляться?</summary><div class="a">Лаунчер сам проверяет релизы на GitHub: кнопка «Обновление» скачивает установщик, сверяет SHA256, ставит поверх и перезапускает лаунчер. Можно и вручную поставить новый <code>VleyzLauncher-Setup.exe</code> — профили, миры и настройки сохранятся.</div></details>
       <details class="reveal"><summary>Мне точно нужна Java?</summary><div class="a">Нет. Если нужной версии Java не окажется в системе, лаунчер сам предложит скачать официальную JRE с Adoptium и будет хранить её отдельно.</div></details>
       <details class="reveal"><summary>Какие версии Minecraft доступны?</summary><div class="a">Все официальные релизы из манифеста Mojang — больше сотни версий, с поиском и страницами. Плюс загрузчики Fabric, Forge и NeoForge (NeoForge — с 1.20.2).</div></details>
       <details class="reveal"><summary>Антивирус ругается на файл. Это вирус?</summary><div class="a">Нет: лаунчер собран в один exe без цифровой подписи, и некоторые антивирусы относятся к таким файлам с недоверием. Скачивай только с этого сайта или из релизов на GitHub, там же есть SHA256. Файлы игры проверяются по SHA1 из официального манифеста Mojang.</div></details>
