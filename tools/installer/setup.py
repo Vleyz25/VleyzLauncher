@@ -1,8 +1,7 @@
-"""Установщик Vleyz Launcher: распаковывает лаунчер, делает ярлыки, пишет удаление.
+"""Установщик: копирует лаунчер, делает ярлыки, кладёт файл удаления.
 
-Сборка: python -m PyInstaller VleyzLauncherSetup.spec --noconfirm
-Запуск без интерфейса (для проверки):
-    VleyzLauncher-Setup.exe --silent --dir "%TEMP%\\vleyz-test" --no-shortcuts
+Собирается через VleyzLauncherSetup.spec. Для проверки умеет работать без интерфейса:
+    VleyzLauncher-Setup.exe --silent --dir <папка> --no-shortcuts
 """
 from __future__ import annotations
 

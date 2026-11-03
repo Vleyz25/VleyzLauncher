@@ -1,4 +1,4 @@
-"""Аккаунты Ely.by — бесплатно, как у TLauncher.
+"""Аккаунты Ely.by: логин, пароль, 2FA, обновление токена.
 
 Логин + пароль → Yggdrasil-совместимый запрос на authserver.ely.by → accessToken,
 который передаётся игре вместе с javaagent authlib-injector (=ely.by). Вариант
