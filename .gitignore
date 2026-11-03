@@ -1,0 +1,26 @@
+# сборка
+build/
+dist/
+*.spec.bak
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# личные данные и состояние
+config.json
+dist/config.json
+logs/
+*.log
+
+# служебные папки инструментов
+.freebuff/
+.vscode/
+.idea/
+
+# мусор
+Thumbs.db
+desktop.ini
