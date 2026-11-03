@@ -12,7 +12,9 @@ venv/
 
 # личные данные и состояние
 config.json
+config.json.*
 dist/config.json
+dist/config.json.*
 logs/
 *.log
 

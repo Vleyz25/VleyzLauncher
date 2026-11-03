@@ -35,4 +35,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['assets/vleyz.ico'],
+    version='tools/version_info_setup.txt',
 )
