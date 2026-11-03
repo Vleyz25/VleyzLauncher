@@ -1,0 +1,26 @@
+name: Идея
+description: Чего не хватает лаунчеру
+title: "[idea] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какая задача
+      description: Что вы хотели сделать и что сейчас мешает
+      placeholder: "Хочу поставить моды с Modrinth, но приходится искать их вручную"
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Как это могло бы работать
+      placeholder: "Кнопка «Моды» → поиск → установка с зависимостями"
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Насколько это важно
+      options:
+        - Было бы удобно
+        - Часто мешает
+        - Без этого не пользуюсь лаунчером

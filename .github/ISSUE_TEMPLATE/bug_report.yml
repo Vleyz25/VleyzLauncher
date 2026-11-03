@@ -1,0 +1,48 @@
+name: Ошибка
+description: Лаунчер не запускается, не ставит версию или игра падает
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за отчёт. Чем точнее шаги и лог, тем быстрее получится починить.
+
+        Лог лежит в `%APPDATA%\VleyzLauncher\logs\launcher.log`.
+  - type: input
+    id: version
+    attributes:
+      label: Версия лаунчера
+      placeholder: "1.6.0"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows
+      placeholder: "Windows 11 23H2, 64-bit"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги
+      placeholder: |
+        1. Открыл «Версии»
+        2. Выбрал 1.20.1 + Fabric
+        3. Нажал «Скачать»
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Что пошло не так
+      description: Текст ошибки, скриншот, crash-report
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи
+      description: Последние строки из `%APPDATA%\VleyzLauncher\logs\launcher.log`
+      render: text
