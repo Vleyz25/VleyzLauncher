@@ -1,35 +1,17 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from pathlib import Path
 
+from . import secure
+
+log = logging.getLogger(__name__)
+
 APP_FOLDER = "VleyzLauncher"
 DEFAULT_NICKNAME = "Steve"
-
-
-def app_dir() -> Path:
-    """Папка рядом с исполняемым файлом (или с исходниками при запуске из Python)."""
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parents[2]
-
-
-def default_data_dir() -> Path:
-    base = os.environ.get("APPDATA")
-    if base:
-        return Path(base) / APP_FOLDER / "minecraft"
-    return Path.home() / f".{APP_FOLDER.lower()}"
-
-
-def java_root() -> Path:
-    """Куда лаунчер ставит скачанные JRE."""
-    base = os.environ.get("APPDATA")
-    if base:
-        return Path(base) / APP_FOLDER / "java"
-    return Path.home() / f".{APP_FOLDER.lower()}" / "java"
-
 
 CONFIG_DEFAULTS = {
     "nickname": DEFAULT_NICKNAME,
@@ -48,31 +30,133 @@ CONFIG_DEFAULTS = {
     "servers": [],
 }
 
+# Что нельзя хранить открытым текстом. Пароль Ely.by нужен для
+# перелогина, поэтому он тоже шифруется, а не выкидывается.
+SECRET_FIELDS = {
+    "ely_auth": ("login", "password", "client_token", "access_token"),
+    "microsoft_auth": ("refresh_token", "access_token"),
+}
+
+
+def app_dir() -> Path:
+    """Папка рядом с исполняемым файлом (или с исходниками при запуске из Python)."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
+
+
+def state_dir() -> Path:
+    """Личные данные лаунчера: конфиг, логи. Всегда в профиле пользователя."""
+    base = os.environ.get("APPDATA")
+    if base:
+        return Path(base) / APP_FOLDER
+    return Path.home() / f".{APP_FOLDER.lower()}"
+
+
+def default_data_dir() -> Path:
+    return state_dir() / "minecraft"
+
+
+def java_root() -> Path:
+    """Куда лаунчер ставит скачанные JRE."""
+    return state_dir() / "java"
+
+
+def logs_dir() -> Path:
+    return state_dir() / "logs"
+
 
 def config_path() -> Path:
+    return state_dir() / "config.json"
+
+
+def legacy_config_path() -> Path:
+    """Старое место конфига — рядом с exe. Нужно только для миграции."""
     return app_dir() / "config.json"
+
+
+def _map_secrets(cfg: dict, transform) -> dict:
+    """Копия конфига, в которой секции с секретами обработаны transform."""
+    result = dict(cfg)
+    for section, fields in SECRET_FIELDS.items():
+        block = cfg.get(section)
+        if not isinstance(block, dict):
+            continue
+        updated = dict(block)
+        for field in fields:
+            value = updated.get(field)
+            if isinstance(value, str) and value:
+                updated[field] = transform(value)
+        result[section] = updated
+    return result
+
+
+def _migrate_legacy() -> None:
+    """Перенести config.json из папки программы в профиль пользователя."""
+    target = config_path()
+    if target.exists():
+        return
+    legacy = legacy_config_path()
+    if not legacy.is_file():
+        return
+    try:
+        stored = json.loads(legacy.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        log.warning("старый конфиг %s не прочитан: %s", legacy, exc)
+        return
+    if not isinstance(stored, dict):
+        return
+    cfg = dict(CONFIG_DEFAULTS)
+    cfg.update(stored)
+    if not save_config(cfg):
+        return
+    try:
+        legacy.replace(legacy.with_name(legacy.name + ".migrated"))
+    except OSError:
+        # Файл мог быть только на чтение (Program Files) — не критично.
+        pass
+    log.info("конфиг перенесён из %s в %s", legacy, target)
 
 
 def load_config() -> dict:
     cfg = dict(CONFIG_DEFAULTS)
+    _migrate_legacy()
     path = config_path()
     if path.is_file():
         try:
             stored = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(stored, dict):
-                cfg.update({k: v for k, v in stored.items() if k in CONFIG_DEFAULTS})
-        except (OSError, ValueError):
-            pass
+        except (OSError, ValueError) as exc:
+            log.warning("конфиг %s не прочитан: %s", path, exc)
+            stored = None
+        if isinstance(stored, dict):
+            # Незнакомые ключи сохраняем: их может добавить новая версия.
+            cfg.update(stored)
+    cfg = _map_secrets(cfg, secure.unprotect)
     if not cfg.get("data_dir"):
         cfg["data_dir"] = str(default_data_dir())
     return cfg
 
 
-def save_config(cfg: dict) -> None:
+def save_config(cfg: dict) -> bool:
+    """Атомарно сохранить конфиг, зашифровав секреты. True — записалось."""
+    data = _map_secrets(cfg, secure.protect)
+    path = config_path()
+    tmp = path.with_name(path.name + ".tmp")
     try:
-        config_path().write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-    except OSError:
-        pass
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(tmp, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(data, handle, ensure_ascii=False, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+        return True
+    except OSError as exc:
+        log.error("не удалось сохранить настройки %s: %s", path, exc)
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False
 
 
 def data_dir(cfg: dict) -> Path:

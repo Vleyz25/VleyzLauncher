@@ -8,7 +8,9 @@ import urllib.request
 from pathlib import Path
 from typing import Callable
 
-USER_AGENT = "VleyzLauncher/1.0 (Minecraft launcher; official Mojang resources)"
+from .. import APP_VERSION
+
+USER_AGENT = f"VleyzLauncher/{APP_VERSION} (Minecraft launcher; official Mojang resources)"
 CHUNK = 256 * 1024
 
 

@@ -1,14 +1,38 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 import threading
 
+from vleyzlauncher import APP_VERSION
 from vleyzlauncher.core import elyby as elyby_core
 from vleyzlauncher.core import java as java_core
 from vleyzlauncher.core import launch as launch_core
 from vleyzlauncher.core import loaders, paths, servers, versions
 from vleyzlauncher.core import microsoft as microsoft_core
+from vleyzlauncher.core.logging_setup import setup_logging
+
+log = logging.getLogger("vleyz.main")
+
+CLI_FLAGS = ("--version", "--list", "--install", "--command", "-h", "--help")
+
+
+def attach_console() -> None:
+    """Windowed-exe не имеет stdout: для CLI-флагов цепляемся к консоли cmd."""
+    if sys.platform != "win32" or sys.stdout is not None:
+        return
+    if not any(flag in sys.argv[1:] for flag in CLI_FLAGS):
+        return
+    try:
+        import ctypes
+
+        if not ctypes.windll.kernel32.AttachConsole(-1):
+            return
+        sys.stdout = open("CONOUT$", "w", encoding="utf-8", errors="replace", buffering=1)
+        sys.stderr = open("CONOUT$", "w", encoding="utf-8", errors="replace", buffering=1)
+    except OSError:
+        pass
 
 
 def cli_install(game: str, loader: str) -> int:
@@ -83,12 +107,14 @@ def cli_command(game: str, loader: str, nickname: str, ram_mb: int, server_addr:
 
 
 def main(argv: list[str] | None = None) -> int:
+    attach_console()
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
         pass
 
     parser = argparse.ArgumentParser(prog="VleyzLauncher")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {APP_VERSION}")
     parser.add_argument("--install", metavar="VERSION", help="скачать версию без запуска интерфейса")
     parser.add_argument("--loader", default="vanilla", choices=[item["id"] for item in loaders.LOADERS],
                         help="загрузчик для --install (по умолчанию vanilla)")
@@ -99,6 +125,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--server", metavar="HOST[:PORT]", default="",
                         help="сервер для автоподключения в --command")
     args = parser.parse_args(argv)
+    gui = not (args.list or args.install or args.command)
+    log_path = setup_logging(show_dialog=gui)
+    log.info("запуск в режиме %s, лог %s", "gui" if gui else "cli", log_path)
 
     if args.list:
         return cli_list()
