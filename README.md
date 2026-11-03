@@ -12,7 +12,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?style=flat-square&logo=windows&logoColor=white)](#)
 
-[**Скачать установщик**](https://github.com/Vleyz25/VleyzLauncher/releases/latest) · [Что нового](CHANGELOG.md) · [Написать о проблеме](https://github.com/Vleyz25/VleyzLauncher/issues)
+[**Сайт**](https://vleyz25.github.io/VleyzLauncher/) · [**Скачать установщик**](https://github.com/Vleyz25/VleyzLauncher/releases/latest) · [Что нового](CHANGELOG.md) · [Написать о проблеме](https://github.com/Vleyz25/VleyzLauncher/issues)
 
 </div>
 

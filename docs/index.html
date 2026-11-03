@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vleyz Launcher — скачать лаунчер Minecraft</title>
+<meta name="description" content="Vleyz Launcher — лёгкий лаунчер Minecraft на Windows: все версии Mojang, Fabric, Forge и NeoForge, вход Microsoft и Ely.by, автоматическая установка Java. Скачать бесплатно.">
+<meta name="theme-color" content="#0b0e14">
+<link rel="canonical" href="https://vleyz25.github.io/VleyzLauncher/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Vleyz Launcher">
+<meta property="og:title" content="Vleyz Launcher — лёгкий лаунчер Minecraft">
+<meta property="og:description" content="12 МБ, официальные файлы Mojang, Fabric/Forge/NeoForge, вход Microsoft и Ely.by. Без рекламы и телеметрии.">
+<meta property="og:url" content="https://vleyz25.github.io/VleyzLauncher/">
+<meta property="og:image" content="https://vleyz25.github.io/VleyzLauncher/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Vleyz Launcher — лёгкий лаунчер Minecraft">
+<meta name="twitter:description" content="12 МБ, официальные файлы Mojang, Fabric/Forge/NeoForge, вход Microsoft и Ely.by.">
+<meta name="twitter:image" content="https://vleyz25.github.io/VleyzLauncher/social-preview.png">
+<link rel="icon" type="image/png" href="vleyz-icon.png">
+<link rel="apple-touch-icon" href="vleyz-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&family=Rubik:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0e14;
+    --bg2:#101623;
+    --panel:#141c2b;
+    --panel2:#182236;
+    --line:#26324a;
+    --text:#e9eef6;
+    --muted:#9fadc2;
+    --green:#55c13b;
+    --green2:#6ad54d;
+    --green-dark:#2f7d1f;
+    --gold:#ffb02e;
+    --sky:#7fd0ff;
+    --shadow:0 18px 50px rgba(0,0,0,.5);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:'Rubik',sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    line-height:1.65;
+    overflow-x:hidden;
+  }
+  h1,h2,h3,.px{font-family:'Pixelify Sans',monospace;letter-spacing:.5px}
+  a{color:var(--green2)}
+  img{image-rendering:pixelated}
+
+  /* ---------- фон: звёзды и кубы ---------- */
+  .sky{position:fixed;inset:0;z-index:-2;background:
+    radial-gradient(1200px 600px at 70% -10%, #16233c 0%, transparent 60%),
+    radial-gradient(900px 500px at 10% 110%, #12261a 0%, transparent 55%),
+    var(--bg);}
+  .stars{position:fixed;inset:0;z-index:-1;opacity:.7}
+  .star{position:absolute;width:2px;height:2px;background:#cfe3ff;animation:tw 3s infinite}
+  @keyframes tw{0%,100%{opacity:.15}50%{opacity:.9}}
+  .cube{position:absolute;z-index:-1;opacity:.16;animation:float 9s ease-in-out infinite}
+  .cube::before{content:"";display:block;width:100%;height:100%;
+    background:conic-gradient(from 90deg at 50% 38%,
+      #55c13b 0 33%, #3f9a2d 33% 66%, #2f7d1f 66% 100%);
+    clip-path:polygon(50% 0,100% 26%,100% 74%,50% 100%,0 74%,0 26%)}
+  @keyframes float{0%,100%{transform:translateY(0) rotate(8deg)}50%{transform:translateY(-26px) rotate(-6deg)}}
+
+  .wrap{max-width:1080px;margin:0 auto;padding:0 22px}
+
+  /* ---------- шапка ---------- */
+  header{position:sticky;top:0;z-index:50;background:rgba(11,14,20,.82);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+  .nav{display:flex;align-items:center;gap:26px;padding:14px 22px;max-width:1080px;margin:0 auto}
+  .brand{display:flex;align-items:center;gap:12px;text-decoration:none;color:var(--text)}
+  .brand img{width:34px;height:34px;border:2px solid #000;box-shadow:0 0 0 2px var(--line),0 4px 14px rgba(0,0,0,.5)}
+  .brand b{font-family:'Pixelify Sans';font-size:21px;line-height:1}
+  .brand small{display:block;color:var(--muted);font-size:11px;letter-spacing:2px;text-transform:uppercase}
+  .navlinks{margin-left:auto;display:flex;gap:22px}
+  .navlinks a{color:var(--muted);text-decoration:none;font-size:14.5px;font-weight:500;transition:color .15s}
+  .navlinks a:hover{color:var(--green2)}
+  @media(max-width:640px){.navlinks{display:none}}
+
+  /* ---------- майнкрафт-кнопки ---------- */
+  .btn{
+    display:inline-flex;align-items:center;gap:12px;justify-content:center;
+    font-family:'Pixelify Sans';font-size:19px;color:#fff;text-decoration:none;
+    padding:15px 30px;border:3px solid #000;border-radius:4px;cursor:pointer;
+    background:linear-gradient(180deg,#67cf49 0%,#4fb634 45%,#3c9427 100%);
+    box-shadow:inset 0 3px 0 rgba(255,255,255,.35), inset 0 -4px 0 rgba(0,0,0,.35), 0 6px 0 #1d4d12, 0 14px 30px rgba(85,193,59,.28);
+    text-shadow:1px 2px 0 rgba(0,0,0,.45);
+    transition:transform .08s, box-shadow .08s, filter .15s;
+  }
+  .btn:hover{filter:brightness(1.08)}
+  .btn:active{transform:translateY(5px);box-shadow:inset 0 3px 0 rgba(255,255,255,.25), inset 0 -2px 0 rgba(0,0,0,.35), 0 1px 0 #1d4d12}
+  .btn.ghost{background:linear-gradient(180deg,#3a4a68 0%,#2c3a54 45%,#22304a 100%);box-shadow:inset 0 3px 0 rgba(255,255,255,.18), inset 0 -4px 0 rgba(0,0,0,.35), 0 6px 0 #101827;font-size:16px;padding:12px 22px}
+  .btn.ghost:active{box-shadow:inset 0 3px 0 rgba(255,255,255,.12), inset 0 -2px 0 rgba(0,0,0,.35), 0 1px 0 #101827;transform:translateY(5px)}
+
+  /* ---------- герой ---------- */
+  .hero{position:relative;text-align:center;padding:88px 22px 72px}
+  .hero .logo{width:120px;height:120px;margin:0 auto 26px;border:4px solid #000;border-radius:6px;
+    box-shadow:0 0 0 3px var(--line),0 0 60px rgba(85,193,59,.35),var(--shadow);animation:bob 5s ease-in-out infinite}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+  .ver{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--gold);
+    border:1px solid rgba(255,176,46,.4);background:rgba(255,176,46,.08);padding:5px 14px;border-radius:100px;margin-bottom:20px}
+  .ver i{width:7px;height:7px;background:var(--gold);display:inline-block;animation:tw 2s infinite}
+  h1{font-size:clamp(42px,8vw,76px);line-height:1.05;text-shadow:0 6px 0 rgba(0,0,0,.55);letter-spacing:1px}
+  h1 span{color:var(--green2)}
+  .sub{max-width:640px;margin:20px auto 0;color:var(--muted);font-size:18.5px}
+  .sub b{color:var(--text)}
+  .cta{margin:38px auto 0;display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+  .meta{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:26px}
+  .chip{font-size:13.5px;color:var(--muted);border:1px solid var(--line);background:rgba(20,28,43,.7);padding:6px 14px;border-radius:8px}
+  .chip b{color:var(--text);font-weight:500}
+
+  /* ---------- секции ---------- */
+  section{padding:74px 0}
+  .sec-title{text-align:center;font-size:clamp(28px,4.5vw,40px);margin-bottom:12px;text-shadow:0 4px 0 rgba(0,0,0,.5)}
+  .sec-sub{text-align:center;color:var(--muted);max-width:560px;margin:0 auto 46px}
+
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  @media(max-width:860px){.grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:560px){.grid{grid-template-columns:1fr}}
+  .card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:12px;padding:26px 24px;transition:transform .2s,border-color .2s,box-shadow .2s}
+  .card:hover{transform:translateY(-5px);border-color:#3b7a2b;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+  .card .ico{width:52px;height:52px;display:flex;align-items:center;justify-content:center;font-size:26px;margin-bottom:16px;
+    background:rgba(85,193,59,.12);border:1px solid rgba(85,193,59,.35);border-radius:10px}
+  .card h3{font-size:20px;margin-bottom:8px}
+  .card p{color:var(--muted);font-size:14.5px}
+
+  /* ---------- шаги ---------- */
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;counter-reset:st}
+  @media(max-width:860px){.steps{grid-template-columns:1fr}}
+  .step{position:relative;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:12px;padding:30px 24px 24px}
+  .step::before{counter-increment:st;content:counter(st);position:absolute;top:-16px;left:22px;
+    font-family:'Pixelify Sans';font-size:19px;color:#fff;background:linear-gradient(180deg,#67cf49,#3c9427);
+    border:3px solid #000;border-radius:6px;width:38px;height:38px;display:flex;align-items:center;justify-content:center;
+    box-shadow:inset 0 2px 0 rgba(255,255,255,.35),0 4px 0 #1d4d12;text-shadow:1px 2px 0 rgba(0,0,0,.4)}
+  .step h3{font-size:19px;margin-bottom:8px}
+  .step p{color:var(--muted);font-size:14.5px}
+  .step code{font-size:13px;background:#0d1420;border:1px solid var(--line);border-radius:6px;padding:2px 8px;color:var(--green2)}
+  .note{margin-top:26px;display:flex;gap:14px;align-items:flex-start;background:rgba(255,176,46,.07);border:1px solid rgba(255,176,46,.35);border-radius:12px;padding:18px 22px;font-size:14.5px;color:#e8d9b8}
+  .note b{color:var(--gold)}
+  .note .i{font-size:22px;line-height:1}
+
+  /* ---------- требования / ограничения ---------- */
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:860px){.two{grid-template-columns:1fr}}
+  .panel{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:12px;padding:28px}
+  .panel h3{font-size:20px;margin-bottom:16px}
+  .panel h3 em{font-style:normal}
+  .req{list-style:none}
+  .req li{display:flex;gap:12px;padding:9px 0;border-bottom:1px dashed #223049;color:var(--muted);font-size:15px}
+  .req li:last-child{border-bottom:0}
+  .req .ok{color:var(--green2);font-weight:700}
+  .lim{list-style:none}
+  .lim li{display:flex;gap:12px;padding:9px 0;border-bottom:1px dashed #223049;color:var(--muted);font-size:14.5px}
+  .lim li:last-child{border-bottom:0}
+  .lim .no{color:var(--gold);font-weight:700}
+
+  /* ---------- FAQ ---------- */
+  .faq{max-width:760px;margin:0 auto}
+  details{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:12px;margin-bottom:12px;overflow:hidden}
+  summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:14px;padding:19px 24px;font-weight:500;font-size:16px;user-select:none}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"+";font-family:'Pixelify Sans';color:var(--green2);font-size:20px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;background:rgba(85,193,59,.12);border:1px solid rgba(85,193,59,.35);border-radius:7px;flex:none;transition:transform .2s}
+  details[open] summary::before{content:"−";transform:rotate(180deg)}
+  details .a{padding:0 24px 20px 64px;color:var(--muted);font-size:14.5px}
+  details .a code{font-size:13px;background:#0d1420;border:1px solid var(--line);border-radius:6px;padding:2px 8px;color:var(--green2)}
+
+  /* ---------- финальный CTA ---------- */
+  .final{text-align:center;padding:80px 22px;background:linear-gradient(180deg,transparent,rgba(85,193,59,.05))}
+  .final h2{font-size:clamp(26px,4.5vw,38px);margin-bottom:10px;text-shadow:0 4px 0 rgba(0,0,0,.5)}
+  .final p{color:var(--muted);margin-bottom:30px}
+
+  footer{border-top:1px solid var(--line);padding:34px 22px;text-align:center;color:var(--muted);font-size:13.5px}
+  footer .made{font-family:'Pixelify Sans';font-size:16px;color:var(--text);margin-bottom:8px}
+  footer .made span{color:var(--green2)}
+
+  /* ---------- скриншоты ---------- */
+  .shots{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:860px){.shots{grid-template-columns:1fr}}
+  .shots figure{background:#0d1420;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:var(--shadow)}
+  .shots img{display:block;width:100%;height:auto}
+  .shots figcaption{padding:10px 16px;color:var(--muted);font-size:13.5px;border-top:1px solid var(--line)}
+
+  .reveal{opacity:0;transform:translateY(26px);transition:opacity .6s ease,transform .6s ease}
+  .reveal.on{opacity:1;transform:none}
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.reveal{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+<div class="sky"></div>
+<div class="stars" id="stars"></div>
+<div class="cube" style="width:70px;height:70px;left:6%;top:16%"></div>
+<div class="cube" style="width:44px;height:44px;left:14%;top:64%;animation-delay:-3s"></div>
+<div class="cube" style="width:56px;height:56px;right:8%;top:24%;animation-delay:-5s"></div>
+<div class="cube" style="width:36px;height:36px;right:16%;top:70%;animation-delay:-1.5s"></div>
+<div class="cube" style="width:30px;height:30px;left:46%;top:86%;animation-delay:-6s"></div>
+
+<header>
+  <nav class="nav">
+    <a class="brand" href="#">
+      <img src="vleyz-icon.png" alt="Vleyz">
+      <span><b>VLEYZ LAUNCHER</b><small>Minecraft Launcher</small></span>
+    </a>
+    <div class="navlinks">
+      <a href="#features">Возможности</a>
+      <a href="#screens">Скриншоты</a>
+      <a href="#install">Установка</a>
+      <a href="#faq">Вопросы</a>
+      <a class="btn ghost" href="https://github.com/Vleyz25/VleyzLauncher/releases/latest/download/VleyzLauncher-Setup.exe" rel="noopener">Скачать</a>
+    </div>
+  </nav>
+</header>
+
+<section class="hero">
+  <img class="logo" src="vleyz-icon.png" alt="Логотип Vleyz Launcher">
+  <div class="ver"><i></i> Версия <b id="ver">1.6.0</b> · обновление с GitHub</div>
+  <h1>VLEYZ <span>LAUNCHER</span></h1>
+  <p class="sub">Один установщик — и <b>весь Minecraft</b> у тебя на ПК: любые официальные версии
+  Mojang плюс <b>Fabric, Forge и NeoForge</b>. Java установится сама, файлы проверяются по SHA1.</p>
+  <div class="cta">
+    <a class="btn" href="https://github.com/Vleyz25/VleyzLauncher/releases/latest/download/VleyzLauncher-Setup.exe" rel="noopener">⬇&nbsp; Скачать для Windows</a>
+    <a class="btn ghost" href="#install">Как установить</a>
+  </div>
+  <div class="meta">
+    <span class="chip"><b id="fsize">≈ 24 МБ</b> · установщик</span>
+    <span class="chip"><b>Windows 10 / 11</b> · 64-bit</span>
+    <span class="chip"><b>Microsoft и Ely.by</b> · вход по коду</span>
+    <span class="chip"><b>Java не нужна</b> — скачается сама</span>
+    <span class="chip"><b>Без рекламы</b></span>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <h2 class="sec-title reveal">Что умеет лаунчер</h2>
+    <p class="sec-sub reveal">Всё, что нужно, чтобы быстро скачать и запустить нужную версию игры — без лишнего.</p>
+    <div class="grid">
+      <div class="card reveal"><div class="ico">🎮</div><h3>Все версии Mojang</h3><p>Сетка релизов прямо на главной: 103 версии, поиск по названию и страницы. Скачивается только то, что выбрал ты.</p></div>
+      <div class="card reveal"><div class="ico">⚙️</div><h3>Fabric, Forge, NeoForge</h3><p>Четыре режима на выбор: Vanilla, Fabric, Forge и NeoForge. Актуальные сборки видны сразу, недоступные сочетания честно помечены.</p></div>
+      <div class="card reveal"><div class="ico">☕</div><h3>Java сама установится</h3><p>Если нужной Java нет, лаунчер скачает официальную JRE с Adoptium и будет держать её в своей папке — системные установки не трогает.</p></div>
+      <div class="card reveal"><div class="ico">🛡️</div><h3>Проверка каждого файла</h3><p>Размер и SHA1 для каждого файла из манифеста Mojang. Битые и подменённые загрузки отбрасываются и перекачиваются.</p></div>
+      <div class="card reveal"><div class="ico">🔐</div><h3>Аккаунты и приватность</h3><p>Вход Microsoft по коду устройства и Ely.by. Пароли и токены шифруются Windows DPAPI, телеметрии нет.</p></div>
+      <div class="card reveal"><div class="ico">🎛️</div><h3>Настройки</h3><p>Никнейм, оперативная память от 1 до 12 ГБ, своя папка игры и путь к Java. Обычный .minecraft не трогается — твои миры на месте.</p></div>
+      <div class="card reveal"><div class="ico">📊</div><h3>Прогресс в реальном времени</h3><p>Файлы, проценты, скорость и текущий этап загрузки — всегда видно, что происходит и сколько осталось.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="screens" style="padding-top:20px">
+  <div class="wrap">
+    <h2 class="sec-title reveal">Как выглядит</h2>
+    <p class="sec-sub reveal">Настоящие скриншоты: тёмная и светлая темы, версии, серверы и моды.</p>
+    <div class="shots">
+      <figure class="reveal"><img src="screenshots/home.png" alt="Главная страница Vleyz Launcher" loading="lazy"><figcaption>Главная и запуск</figcaption></figure>
+      <figure class="reveal"><img src="screenshots/versions.png" alt="Выбор версии Minecraft и загрузчика" loading="lazy"><figcaption>Версии Mojang и загрузчики</figcaption></figure>
+      <figure class="reveal"><img src="screenshots/servers.png" alt="Список серверов с пингом" loading="lazy"><figcaption>Серверы с пингом</figcaption></figure>
+      <figure class="reveal"><img src="screenshots/home-light.png" alt="Светлая тема лаунчера" loading="lazy"><figcaption>Светлая тема</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section id="install" style="padding-top:20px">
+  <div class="wrap">
+    <h2 class="sec-title reveal">Как установить</h2>
+    <p class="sec-sub reveal">Три шага и меньше минуты. Ставится в профиль пользователя, права администратора не нужны.</p>
+    <div class="steps">
+      <div class="step reveal"><h3>Скачай установщик</h3><p>Нажми <b>«Скачать для Windows»</b> и сохрани <code>VleyzLauncher-Setup.exe</code>. Не хочешь ставить — в том же релизе есть <code>VleyzLauncher-portable.zip</code>.</p></div>
+      <div class="step reveal"><h3>Запусти</h3><p>Двойной клик по установщику. Если Windows покажет синее окно SmartScreen — жми <b>«Подробнее»</b> → <b>«Выполнить в любом случае»</b>.</p></div>
+      <div class="step reveal"><h3>Выбери версию и играй</h3><p>Открой «Версии», найди нужную сборку, при желании выбери Fabric / Forge / NeoForge и жми «Скачать». Java подтянется автоматически.</p></div>
+    </div>
+    <div class="note reveal"><span class="i">⚠️</span><span><b>Почему SmartScreen предупреждает?</b> Лаунчер без платной цифровой подписи — она дорогая и её нет у небольших открытых проектов. Скачивай только по кнопке с этого сайта или из <a href="https://github.com/Vleyz25/VleyzLauncher/releases">релизов на GitHub</a>, там же лежат SHA256.</span></div>
+  </div>
+</section>
+
+<section style="padding-top:20px">
+  <div class="wrap">
+    <div class="two">
+      <div class="panel reveal">
+        <h3>Системные требования</h3>
+        <ul class="req">
+          <li><span class="ok">✔</span> Windows 10 / 11 (64-bit)</li>
+          <li><span class="ok">✔</span> Подключение к интернету</li>
+          <li><span class="ok">✔</span> ~25 МБ на установщик + от 500 МБ на версию игры</li>
+          <li><span class="ok">✔</span> Java <b>не обязательна</b> — скачается сама</li>
+        </ul>
+      </div>
+      <div class="panel reveal">
+        <h3>Честные ограничения</h3>
+        <ul class="lim">
+          <li><span class="no">•</span> Запуск в офлайн-режиме с никнеймом: официальные серверы с авторизацией не пустят</li>
+          <li><span class="no">•</span> NeoForge поддерживается начиная с 1.20.2</li>
+          <li><span class="no">•</span> Моды, ресурспаки и шейдеры не ставятся автоматически — папки создаются, но наполняются вручную</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" style="padding-top:20px">
+  <div class="wrap">
+    <h2 class="sec-title reveal">Частые вопросы</h2>
+    <p class="sec-sub reveal">Коротко о том, что спрашивают чаще всего.</p>
+    <div class="faq">
+      <details class="reveal"><summary>Куда скачивается игра?</summary><div class="a">По умолчанию в <code>%APPDATA%\VleyzLauncher\minecraft</code>. Папку можно поменять в настройках. Твой обычный <code>.minecraft</code> лаунчер не трогает.</div></details>
+      <details class="reveal"><summary>Где настройки, аккаунты и логи?</summary><div class="a">В <code>%APPDATA%\VleyzLauncher</code>: <code>config.json</code> и папка <code>logs</code>. Пароль и токены Ely.by, токены Microsoft шифруются через Windows DPAPI и не читаются на другом ПК.</div></details>
+      <details class="reveal"><summary>Как обновляться?</summary><div class="a">Лаунчер сам проверяет релизы на GitHub и показывает кнопку «Обновление» в меню. Можно и просто поставить новый <code>VleyzLauncher-Setup.exe</code> поверх — профили, миры и настройки сохранятся.</div></details>
+      <details class="reveal"><summary>Мне точно нужна Java?</summary><div class="a">Нет. Если нужной версии Java не окажется в системе, лаунчер сам предложит скачать официальную JRE с Adoptium и будет хранить её отдельно.</div></details>
+      <details class="reveal"><summary>Какие версии Minecraft доступны?</summary><div class="a">Все официальные релизы из манифеста Mojang — больше сотни версий, с поиском и страницами. Плюс загрузчики Fabric, Forge и NeoForge (NeoForge — с 1.20.2).</div></details>
+      <details class="reveal"><summary>Антивирус ругается на файл. Это вирус?</summary><div class="a">Нет: лаунчер собран в один exe без цифровой подписи, и некоторые антивирусы относятся к таким файлам с недоверием. Скачивай только с этого сайта или из релизов на GitHub, там же есть SHA256. Файлы игры проверяются по SHA1 из официального манифеста Mojang.</div></details>
+      <details class="reveal"><summary>Можно ли играть на серверах?</summary><div class="a">На серверах без обязательной авторизации (offline-mode) — да, с никнеймом. Официальные серверы с online-mode требуют аккаунт Microsoft с купленной игрой: лаунчер умеет входить по коду устройства и пароль не хранит.</div></details>
+      <details class="reveal"><summary>Это официальный продукт Minecraft?</summary><div class="a">Нет. Vleyz Launcher — фанатский проект. Minecraft — торговая марка Mojang Studios; лаунчер и этот сайт не связаны с Mojang и Microsoft.</div></details>
+    </div>
+  </div>
+</section>
+
+<section class="final">
+  <h2 class="reveal">Готов копать? ⛏</h2>
+  <p class="reveal">Один установщик — и все версии Minecraft на месте.</p>
+  <a class="btn reveal" href="https://github.com/Vleyz25/VleyzLauncher/releases/latest/download/VleyzLauncher-Setup.exe" rel="noopener">⬇&nbsp; Скачать Vleyz Launcher</a>
+  <p class="reveal" style="margin-top:20px;font-size:14px;color:var(--muted)">
+    <a href="https://github.com/Vleyz25/VleyzLauncher/releases/latest/download/VleyzLauncher-portable.zip">Portable без установки</a>
+    · <a href="https://github.com/Vleyz25/VleyzLauncher/releases">все релизы и SHA256</a>
+  </p>
+</section>
+
+<footer>
+  <div class="made">Сделал <span>vleyz</span></div>
+  <p style="margin-bottom:10px">
+    <a href="https://github.com/Vleyz25/VleyzLauncher">GitHub</a> ·
+    <a href="https://github.com/Vleyz25/VleyzLauncher/releases">Релизы</a> ·
+    <a href="https://github.com/Vleyz25/VleyzLauncher/issues">Ошибки и идеи</a>
+  </p>
+  Vleyz Launcher — фанатский проект. Minecraft — торговая марка Mojang Studios.<br>
+  Сайт и лаунчер не связаны с Mojang Studios и Microsoft.
+</footer>
+
+<script>
+  // звёзды на фоне
+  (function(){
+    var s=document.getElementById('stars'),f=document.createDocumentFragment();
+    for(var i=0;i<90;i++){var d=document.createElement('div');d.className='star';
+      d.style.left=(Math.random()*100)+'%';d.style.top=(Math.random()*100)+'%';
+      d.style.animationDelay=(Math.random()*3)+'s';f.appendChild(d);}
+    s.appendChild(f);
+  })();
+
+  // актуальная версия и размер установщика из GitHub; при сбое остаются тексты из разметки
+  fetch('https://api.github.com/repos/Vleyz25/VleyzLauncher/releases/latest',{headers:{'Accept':'application/vnd.github+json'}})
+    .then(function(r){return r.ok?r.json():null})
+    .then(function(d){
+      if(!d) return;
+      var ver=document.getElementById('ver');
+      if(ver && d.tag_name) ver.textContent=String(d.tag_name).replace(/^v/i,'');
+      var setup=(d.assets||[]).filter(function(a){return /setup\.exe$/i.test(a.name)})[0];
+      if(setup && setup.size){
+        document.getElementById('fsize').textContent='≈ '+Math.round(setup.size/1048576)+' МБ';
+      }
+    }).catch(function(){});
+
+  // плавное появление секций
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){
+    if(e.isIntersecting){e.target.classList.add('on');io.unobserve(e.target);}
+  });},{threshold:.12});
+  document.querySelectorAll('.reveal').forEach(function(el){io.observe(el)});
+</script>
+</body>
+</html>

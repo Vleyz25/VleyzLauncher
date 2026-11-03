@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://vleyz25.github.io/VleyzLauncher/sitemap.xml
