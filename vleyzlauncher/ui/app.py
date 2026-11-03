@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import queue
 import sys
@@ -8,8 +9,9 @@ import time
 import tkinter as tk
 import webbrowser
 from pathlib import Path
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 
+from .. import APP_NAME, APP_VERSION
 from ..core import java as java_core
 from ..core import launch as launch_core
 from ..core import loaders
@@ -19,10 +21,13 @@ from ..core import mods as mods_core
 from ..core import paths
 from ..core import profiles as profiles_core
 from ..core import servers as servers_core
+from ..core import updates as updates_core
 from ..core import versions as version_core
 from ..core.installer import InstallError, Installer, Progress, uninstall
 from ..core.net import DownloadCancelled
 from . import draw, theme
+
+log = logging.getLogger("vleyz.ui")
 
 W, H = 1180, 724
 TITLE_H = 46
@@ -139,6 +144,7 @@ class CanvasButton:
 class Launcher(tk.Tk):
     def __init__(self):
         super().__init__()
+        self.title(APP_NAME)
         self.cfg = paths.load_config()
         theme.apply(str(self.cfg.get("theme") or "dark"))
         profiles_core.ensure(self.cfg)
@@ -189,6 +195,11 @@ class Launcher(tk.Tk):
         self._ms_cancel = threading.Event()
         self._queue: queue.Queue = queue.Queue()
         self._restore_search_focus = False
+        self.update_info: dict | None = None
+        self.update_checked = False
+        self._update_busy = False
+        self.update_button: CanvasButton | None = None
+        self._error_shown = False
 
         self.withdraw()
         self.overrideredirect(True)
@@ -213,6 +224,7 @@ class Launcher(tk.Tk):
         self.bind("<Escape>", lambda e: self._close_modal())
         self.canvas.bind_all("<MouseWheel>", self._on_wheel)
         self._load_releases()
+        self.after(1200, self._check_updates)
         if self.game:
             self._resolve_choices()
             self._detect_java()
@@ -308,8 +320,56 @@ class Launcher(tk.Tk):
         draw.rr(cv, 16, box_top, SIDE_W - 16, box_bottom, 14, fill=theme.FIELD, outline=theme.PANEL_BORDER)
         draw.cube(cv, 40, box_top + 26, 18, theme.ACCENT)
         draw.text(cv, 60, box_top + 19, "Сделал vleyz", 10, theme.TEXT, "bold")
-        draw.text(cv, 60, box_top + 36, "v1.6 · сетевая игра", 8, theme.MUTED)
+        draw.text(cv, 60, box_top + 36, f"v{APP_VERSION} · сетевая игра", 8, theme.MUTED)
         draw.text(cv, 30, box_bottom - 16, "Игра по сети · официальные файлы Mojang", 8, theme.DIM)
+        self._draw_update_badge()
+
+    def _draw_update_badge(self) -> None:
+        """Кнопка обновления в свободном месте сайдбара."""
+        if self.update_button is not None:
+            self.update_button.destroy()
+            self.update_button = None
+        info = self.update_info
+        if not info:
+            return
+        self.update_button = CanvasButton(
+            self, 16, 524, SIDE_W - 16, 574,
+            f"Обновление {info.get('version') or ''}".strip(),
+            command=self._open_update, kind="primary", size=9,
+        )
+
+    def _check_updates(self, manual: bool = False) -> None:
+        if self._update_busy:
+            return
+        self._update_busy = True
+
+        def work() -> None:
+            info = updates_core.check()
+            self._post(lambda: self._update_ready(info, manual))
+
+        threading.Thread(target=work, daemon=True, name="update-check").start()
+
+    def _update_ready(self, info: dict | None, manual: bool) -> None:
+        self._update_busy = False
+        self.update_checked = True
+        if info:
+            self.update_info = info
+            self._draw_update_badge()
+            if manual:
+                messagebox.showinfo(
+                    "Обновление",
+                    f"Доступна версия {info['version']}.\nСейчас у вас {APP_VERSION}.\n\n"
+                    "Нажмите кнопку «Обновление» в левом меню, чтобы скачать установщик.",
+                )
+            return
+        if manual:
+            messagebox.showinfo("Обновление", f"У вас последняя версия — {APP_VERSION}.")
+
+    def _open_update(self) -> None:
+        info = self.update_info or {}
+        url = updates_core.download_url(info)
+        if url:
+            webbrowser.open(url)
 
     def _draw_nav_item(self, key, label, y0, y1):
         cv = self.canvas
@@ -2124,7 +2184,7 @@ class Launcher(tk.Tk):
         self._header("О лаунчере", "Чистый лаунчер: ничего не предустановлено")
         draw.rr(cv, CX0, 132, CX1, 648, 18, fill=theme.PANEL, outline=theme.PANEL_BORDER, tags="page")
         draw.cube(cv, CX0 + 76, 196, 64, theme.ACCENT, tags="page")
-        draw.text(cv, CX0 + 124, 176, "Vleyz Launcher 1.5", 16, theme.TEXT, "bold", "w", "page")
+        draw.text(cv, CX0 + 124, 176, f"Vleyz Launcher {APP_VERSION}", 16, theme.TEXT, "bold", "w", "page")
         draw.text(cv, CX0 + 124, 200, "Сделал vleyz", 13, theme.ACCENT, "bold", "w", "page")
         draw.text(cv, CX0 + 124, 222, "Любая версия Minecraft, любой загрузчик — в пару кликов.",
                   9, theme.MUTED, "normal", "w", "page")
@@ -2148,6 +2208,9 @@ class Launcher(tk.Tk):
                   8, theme.DIM, "normal", "w", "page")
         draw.text(cv, CX0 + 28, 560, "Играть можно только на аккаунте, который принадлежит вам (EULA Mojang).",
                   8, theme.DIM, "normal", "w", "page")
+        check = CanvasButton(self, CX0 + 28, 580, CX0 + 268, 620, "Проверить обновления",
+                             command=lambda: self._check_updates(manual=True), kind="ghost", size=9)
+        self.page_buttons.append(check)
         draw.text(cv, CX1 - 28, 600, "Сделал vleyz", 9, theme.DIM, "normal", "e", "page")
 
     # ------------------------------------------------------------------ список
@@ -2514,6 +2577,20 @@ class Launcher(tk.Tk):
             pass
         try:
             self.after(120, self._poll)
+        except tk.TclError:
+            pass
+
+    def report_callback_exception(self, exc, val, tb):
+        """Ошибка в обработчике tkinter: в лог и одно понятное окно."""
+        log.error("ошибка в интерфейсе", exc_info=(exc, val, tb))
+        if self._error_shown:
+            return
+        self._error_shown = True
+        try:
+            messagebox.showerror(
+                "Vleyz Launcher",
+                f"{val}\n\nПодробности: {paths.logs_dir() / 'launcher.log'}",
+            )
         except tk.TclError:
             pass
 
