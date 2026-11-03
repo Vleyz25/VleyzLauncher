@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 import os
 import queue
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 import tkinter as tk
@@ -200,6 +202,7 @@ class Launcher(tk.Tk):
         self._update_busy = False
         self.update_button: CanvasButton | None = None
         self._error_shown = False
+        self._install_repair = False
 
         self.withdraw()
         self.overrideredirect(True)
@@ -368,8 +371,82 @@ class Launcher(tk.Tk):
     def _open_update(self) -> None:
         info = self.update_info or {}
         url = updates_core.download_url(info)
-        if url:
+        if not url:
+            return
+        if not getattr(sys, "frozen", False) or not info.get("setup_url"):
+            # Из исходников нельзя заменить запущенный процесс — ведём на релиз.
             webbrowser.open(url)
+            return
+        version = info.get("version") or "новую версию"
+        if not messagebox.askyesno(
+            "Обновление",
+            f"Скачать и установить {version}?\n\n"
+            "Лаунчер закроется и запустится снова. Настройки, профили и миры останутся.",
+        ):
+            return
+        self._download_update(info)
+
+    def _download_update(self, info: dict) -> None:
+        if self._update_busy:
+            return
+        self._update_busy = True
+        if self.update_button is not None:
+            self.update_button.set_enabled(False)
+            self.update_button.set_label("Скачиваю…")
+        total = int(info.get("setup_size") or 0)
+        dest = Path(tempfile.gettempdir()) / f"VleyzLauncher-Setup-{info.get('version') or 'new'}.exe"
+        state = {"done": 0, "pct": -1}
+
+        def on_bytes(count: int) -> None:
+            state["done"] = max(0, state["done"] + count)
+            if total <= 0:
+                return
+            percent = max(0, min(100, int(state["done"] * 100 / total)))
+            if percent != state["pct"]:
+                state["pct"] = percent
+                self._post(lambda value=percent: self._update_label(f"Скачиваю {value} %"))
+
+        def work() -> None:
+            try:
+                updates_core.download_update(info, dest, on_bytes=on_bytes)
+                error = ""
+            except Exception as exc:  # noqa: BLE001 - показываем пользователю
+                error = str(exc)
+            self._post(lambda: self._update_downloaded(dest, error))
+
+        threading.Thread(target=work, daemon=True, name="update-download").start()
+
+    def _update_label(self, text: str) -> None:
+        if self.update_button is not None:
+            try:
+                self.update_button.set_label(text)
+            except tk.TclError:
+                pass
+
+    def _update_downloaded(self, dest: Path, error: str) -> None:
+        self._update_busy = False
+        if error:
+            if self.update_button is not None:
+                self.update_button.set_enabled(True)
+                self.update_button.set_label(
+                    f"Обновление {((self.update_info or {}).get('version') or '').strip()}".strip()
+                )
+            messagebox.showerror("Обновление", f"Не удалось скачать обновление:\n{error}")
+            return
+        target = paths.app_dir()
+        try:
+            if getattr(sys, "frozen", False) and os.access(target, os.W_OK):
+                subprocess.Popen(
+                    updates_core.install_command(dest, target),
+                    creationflags=0x08000000,
+                    close_fds=True,
+                )
+            else:
+                os.startfile(str(dest))
+        except OSError as exc:
+            messagebox.showerror("Обновление", f"Не удалось запустить установщик:\n{exc}")
+            return
+        self.after(500, self._on_close)
 
     def _draw_nav_item(self, key, label, y0, y1):
         cv = self.canvas
@@ -943,15 +1020,18 @@ class Launcher(tk.Tk):
         play = CanvasButton(self, inner0, 384, inner1, 444, "Играть",
                             command=lambda: self._start_game(self.installed_id),
                             kind="primary", size=13, enabled=bool(self.installed_id))
-        open_version = CanvasButton(self, inner0, 454, inner1, 490, "Открыть папку версии",
+        mid = (inner0 + inner1) // 2
+        open_version = CanvasButton(self, inner0, 454, mid - 4, 490, "Папка версии",
                                     command=lambda: self._open_version_folder(self.installed_id or ""),
                                     kind="ghost", size=9, enabled=bool(self.installed_id))
-        mid = (inner0 + inner1) // 2
+        repair = CanvasButton(self, mid + 4, 454, inner1, 490, "Проверить файлы",
+                              command=self._repair_selected, kind="ghost", size=9,
+                              enabled=bool(self.installed_id))
         new_profile = CanvasButton(self, inner0, 498, mid - 4, 534, "Профили",
                                    command=self._open_create_profile_modal, kind="ghost", size=9)
-        account_btn = CanvasButton(self, mid + 4, 498, inner1, 534, "Аккаунт",
+        account_btn = CanvasButton(self, mid + 4, 498, inner1, 534, "Войти",
                                    command=self._open_account_modal, kind="ghost", size=9)
-        self.page_buttons.extend([play, open_version, new_profile, account_btn])
+        self.page_buttons.extend([play, open_version, repair, new_profile, account_btn])
 
         draw.hline(cv, inner0, inner1, 552, theme.DIVIDER, tags="page")
         draw.text(cv, inner0, 572, self.log_lines[-1] if self.log_lines else "Готово к запуску",
@@ -2260,7 +2340,17 @@ class Launcher(tk.Tk):
             return
         self._start_install()
 
-    def _start_install(self):
+    def _repair_selected(self) -> None:
+        """Проверить и докачать файлы выбранной версии на странице «Версии»."""
+        if not self.installed_id:
+            return
+        if self.worker and self.worker.is_alive():
+            self._push_log("Дождись окончания текущей операции.")
+            return
+        self._show_page("play")
+        self._start_install(repair=True)
+
+    def _start_install(self, repair: bool = False):
         if self.worker and self.worker.is_alive():
             return
         if not self.game:
@@ -2273,11 +2363,15 @@ class Launcher(tk.Tk):
         self.cancel_event = threading.Event()
         self.progress = Progress()
         self._display_pct = 0.0
+        self._install_repair = repair
         self.btn_primary.set_label("Отмена")
         self.btn_primary.set_kind("danger")
         self.btn_play.set_enabled(False)
-        self.canvas.itemconfigure(self.stage_id, text=f"Скачиваю Minecraft {self.game}")
-        self._push_log("Подключаюсь к официальным серверам…")
+        self.canvas.itemconfigure(
+            self.stage_id,
+            text=(f"Проверяю Minecraft {self.game}" if repair else f"Скачиваю Minecraft {self.game}"),
+        )
+        self._push_log("Проверяю файлы…" if repair else "Подключаюсь к официальным серверам…")
 
         game = self.game
         loader = self.loader
@@ -2286,7 +2380,7 @@ class Launcher(tk.Tk):
         def run():
             installer = Installer(data_dir, self.progress, log=self._push_log_threadsafe, cancel=self.cancel_event)
             try:
-                result = installer.install(game, loader)
+                result = installer.install(game, loader, repair=repair)
                 self._after_install(result.get("version_id") or game, None)
             except DownloadCancelled:
                 self._after_install(game, "cancelled")
@@ -2316,10 +2410,14 @@ class Launcher(tk.Tk):
             self._push_log(f"Ошибка: {error}")
         elif self.installed_id:
             self.canvas.itemconfigure(self.stage_id, text="Готово к запуску")
-            self._push_log(f"{version_id} установлена. Нажми «Играть».")
+            if self._install_repair:
+                self._push_log("Файлы проверены — можно запускать.")
+            else:
+                self._push_log(f"{version_id} установлена. Нажми «Играть».")
             self._display_pct = 100.0
             self.canvas.itemconfigure(self.pct_id, text="100 %")
             self._paint_bar(100.0)
+        self._install_repair = False
         if not self.installed_id:
             self._display_pct = 0.0
             self._paint_bar(0.0)
