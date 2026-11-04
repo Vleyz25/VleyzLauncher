@@ -7,7 +7,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import versions
+from . import social, versions
 
 CREATE_NO_WINDOW = 0x08000000
 
@@ -173,6 +173,8 @@ def build_command(
     }
 
     command = [str(java), f"-Xmx{int(ram_mb)}M", f"-Xms{min(1024, int(ram_mb))}M"]
+    if session is None:
+        command.extend(social.jvm_args())
     agent_jar = str(session.get("agent_jar") or "") if session else ""
     if agent_jar:
         command.append(f"-javaagent:{agent_jar}=ely.by")

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from vleyzlauncher import APP_VERSION  # noqa: E402
-from vleyzlauncher.core import launch, net, paths, profiles, secure, updates  # noqa: E402
+from vleyzlauncher.core import launch, net, paths, profiles, secure, social, updates  # noqa: E402
 
 
 class RangeHandler(http.server.BaseHTTPRequestHandler):
@@ -176,6 +176,28 @@ class DownloadTests(unittest.TestCase):
 
             self.assertEqual(dest.read_bytes(), payload)
             self.assertEqual(sum(calls), len(payload))
+
+
+class SocialTests(unittest.TestCase):
+    def test_privileges_stub_allows_multiplayer(self) -> None:
+        payload = net.fetch_json(social.ensure_server() + "/privileges")
+        self.assertTrue(payload["privileges"]["multiplayerServer"]["enabled"])
+        self.assertTrue(payload["privileges"]["onlineChat"]["enabled"])
+        self.assertTrue(payload["privileges"]["multiplayerRealms"]["enabled"])
+
+    def test_blocklist_is_empty(self) -> None:
+        payload = net.fetch_json(social.ensure_server() + "/privacy/blocklist")
+        self.assertEqual(payload["blockedProfiles"], [])
+
+    def test_jvm_args_override_services_only(self) -> None:
+        args = social.jvm_args()
+        self.assertEqual(len(args), 4)
+        self.assertTrue(
+            any(a.startswith("-Dminecraft.api.services.host=http://127.0.0.1:") for a in args)
+        )
+        self.assertIn("-Dminecraft.api.auth.host=https://authserver.mojang.com", args)
+        self.assertIn("-Dminecraft.api.account.host=https://api.mojang.com", args)
+        self.assertIn("-Dminecraft.api.session.host=https://sessionserver.mojang.com", args)
 
 
 class LaunchTests(unittest.TestCase):
