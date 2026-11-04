@@ -86,7 +86,7 @@ def cli_command(game: str, loader: str, nickname: str, ram_mb: int, server_addr:
         if not server:
             print(f"Некорректный адрес сервера: {server_addr}")
             return 1
-        servers.sync_servers_dat(data_dir, cfg)
+    servers.sync_servers_dat(data_dir, cfg)
     session = None
     mode = str(cfg.get("account_mode") or "offline")
     try:

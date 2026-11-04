@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from vleyzlauncher import APP_VERSION  # noqa: E402
-from vleyzlauncher.core import net, paths, profiles, secure, updates  # noqa: E402
+from vleyzlauncher.core import launch, net, paths, profiles, secure, updates  # noqa: E402
 
 
 class RangeHandler(http.server.BaseHTTPRequestHandler):
@@ -176,6 +176,16 @@ class DownloadTests(unittest.TestCase):
 
             self.assertEqual(dest.read_bytes(), payload)
             self.assertEqual(sum(calls), len(payload))
+
+
+class LaunchTests(unittest.TestCase):
+    def test_offline_and_ely_enable_multiplayer(self) -> None:
+        self.assertEqual(launch.user_type(None), "mojang")
+        self.assertEqual(launch.user_type({"user_type": "ely"}), "mojang")
+        self.assertEqual(launch.user_type({"user_type": "legacy"}), "mojang")
+
+    def test_microsoft_keeps_msa(self) -> None:
+        self.assertEqual(launch.user_type({"user_type": "msa"}), "msa")
 
 
 class ProfileTests(unittest.TestCase):

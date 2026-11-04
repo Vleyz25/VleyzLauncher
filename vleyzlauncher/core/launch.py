@@ -24,6 +24,17 @@ def offline_uuid(name: str) -> str:
     return str(uuid.UUID(bytes=bytes(raw)))
 
 
+def user_type(session: dict | None) -> str:
+    """Тип пользователя для клиента: msa только у Microsoft, иначе mojang.
+
+    Клиент считает неизвестный тип (например, "ely") за "legacy" и выключает
+    «Сетевую игру» в 1.16+. Поэтому офлайн-профилю и Ely.by отдаём "mojang".
+    Онлайн-серверы всё равно проверяют сессию — лицензию это не заменяет.
+    """
+    kind = str((session or {}).get("user_type") or "").strip().lower()
+    return "msa" if kind == "msa" else "mojang"
+
+
 def _substitute(value: str, mapping: dict[str, str]) -> str:
     for key, replacement in mapping.items():
         value = value.replace("${" + key + "}", replacement)
@@ -148,7 +159,7 @@ def build_command(
         "auth_session": str(session.get("access_token") or "0") if session else "0",
         "clientid": str(session.get("client_id") or "") if session else "",
         "auth_xuid": str(session.get("xuid") or "") if session else "",
-        "user_type": str(session.get("user_type") or "legacy") if session else "legacy",
+        "user_type": user_type(session),
         "user_properties": "{}",
         "version_type": vjson.get("type", "release"),
         "natives_directory": str(natives),

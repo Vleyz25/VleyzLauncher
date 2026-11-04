@@ -229,7 +229,7 @@ def session_ready(cfg: dict) -> dict:
         "access_token": str(stored.get("access_token") or ""),
         "profile_id": agent_uuid(stored.get("profile_id")),
         "profile_name": str(stored.get("profile_name") or ""),
-        "user_type": "ely",
+        "user_type": "mojang",
     }
 
 
