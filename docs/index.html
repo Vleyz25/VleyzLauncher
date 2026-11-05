@@ -207,6 +207,7 @@
     </a>
     <div class="navlinks">
       <a href="#features">Возможности</a>
+      <a href="#news">Что нового</a>
       <a href="#screens">Скриншоты</a>
       <a href="#install">Установка</a>
       <a href="#faq">Вопросы</a>
@@ -267,6 +268,17 @@
       <figure class="reveal"><img src="screenshots/servers.png" alt="Список серверов с пингом" loading="lazy"><figcaption>Серверы с пингом</figcaption></figure>
       <figure class="reveal"><img src="screenshots/home-light.png" alt="Светлая тема лаунчера" loading="lazy"><figcaption>Светлая тема</figcaption></figure>
     </div>
+  </div>
+</section>
+
+<section id="news" style="padding-top:20px">
+  <div class="wrap">
+    <h2 class="sec-title reveal">Что нового</h2>
+    <p class="sec-sub reveal">Последний релиз: <b id="news-ver">1.8.0</b><span id="news-date"></span></p>
+    <div class="panel reveal">
+      <div id="news-body" style="white-space:pre-wrap;line-height:1.65;color:var(--muted)">Список изменений подтягивается из GitHub.</div>
+    </div>
+    <p class="reveal" style="margin-top:14px"><a href="https://github.com/Vleyz25/VleyzLauncher/releases">Все релизы и SHA256 →</a></p>
   </div>
 </section>
 
@@ -366,6 +378,15 @@
       if(setup && setup.size){
         document.getElementById('fsize').textContent='≈ '+Math.round(setup.size/1048576)+' МБ';
       }
+      // блок «Что нового» тоже берётся из последнего релиза
+      var nv=document.getElementById('news-ver');
+      if(nv && d.tag_name) nv.textContent=String(d.tag_name).replace(/^v/i,'');
+      var nd=document.getElementById('news-date');
+      if(nd && d.published_at){
+        try{ nd.textContent=' · '+new Date(d.published_at).toLocaleDateString('ru-RU'); }catch(e){}
+      }
+      var nb=document.getElementById('news-body');
+      if(nb && d.body) nb.textContent=String(d.body).trim();
     }).catch(function(){});
 
   // плавное появление секций
