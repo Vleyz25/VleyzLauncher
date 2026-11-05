@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shlex
 import subprocess
 import time
 import uuid
 from pathlib import Path
 
+from .. import APP_VERSION
 from . import social, versions
 
 CREATE_NO_WINDOW = 0x08000000
@@ -14,6 +16,28 @@ CREATE_NO_WINDOW = 0x08000000
 
 class LaunchError(Exception):
     pass
+
+
+def parse_jvm_args(value: str) -> list[str]:
+    """Разбирает строку пользовательских JVM-аргументов.
+
+    ``shlex`` в режиме posix=False сохраняет обратные слэши Windows,
+    поэтому пути вида ``-Dfoo=C:\\Games`` не ломаются.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return []
+    try:
+        parts = shlex.split(text, posix=False)
+    except ValueError:
+        parts = text.split()
+    result: list[str] = []
+    for part in parts:
+        if len(part) >= 2 and part[0] == part[-1] and part[0] in "\"'":
+            part = part[1:-1]
+        if part:
+            result.append(part)
+    return result
 
 
 def offline_uuid(name: str) -> str:
@@ -119,23 +143,28 @@ def build_command(
     java: Path,
     server: tuple[str, int] | None = None,
     session: dict | None = None,
+    jvm_args: str = "",
+    game_dir: Path | None = None,
 ) -> list[str]:
     """Команда запуска; server=(host, port) сразу подключает игру к серверу.
 
     session — словарь аккаунта Ely.by {access_token, profile_id, profile_name,
     user_type}: тогда ник/uuid/токен берутся от ely.by и добавляется
     javaagent authlib-injector (=ely.by). Без session — офлайн-режим по нику.
+    jvm_args — дополнительные аргументы Java из настроек.
+    game_dir — папка инстанса; если не задана, используется data_dir.
     """
     data_dir = Path(data_dir)
+    game_dir = Path(game_dir) if game_dir else data_dir
     vjson = versions.resolved_json(data_dir, version_id)
     version_dir = data_dir / "versions" / version_id
     jar_id = versions.client_jar_id(vjson, version_id)
     client_jar = data_dir / "versions" / jar_id / f"{jar_id}.jar"
     libraries = versions.library_classpath_entries(vjson, data_dir / "libraries")
     classpath_parts = [str(path) for path in libraries]
-    jvm_args = _jvm_arguments(vjson)
+    version_jvm = _jvm_arguments(vjson)
     module_mode = any(
-        arg in ("-p", "--module-path") or arg.startswith("--module-path=") for arg in jvm_args
+        arg in ("-p", "--module-path") or arg.startswith("--module-path=") for arg in version_jvm
     )
     if not module_mode:
         for extra in loader_extra_jars(vjson, data_dir / "libraries"):
@@ -150,7 +179,7 @@ def build_command(
     mapping = {
         "auth_player_name": str(session.get("profile_name") or nickname) if session else nickname,
         "version_name": version_id,
-        "game_directory": str(data_dir),
+        "game_directory": str(game_dir),
         "assets_root": str(data_dir / "assets"),
         "game_assets": str(data_dir / "assets" / "virtual" / "legacy"),
         "assets_index_name": asset_index,
@@ -164,7 +193,7 @@ def build_command(
         "version_type": vjson.get("type", "release"),
         "natives_directory": str(natives),
         "launcher_name": "VleyzLauncher",
-        "launcher_version": "1.1",
+        "launcher_version": APP_VERSION,
         "classpath": os.pathsep.join(classpath_parts),
         "classpath_separator": os.pathsep,
         "library_directory": str(data_dir / "libraries"),
@@ -173,6 +202,7 @@ def build_command(
     }
 
     command = [str(java), f"-Xmx{int(ram_mb)}M", f"-Xms{min(1024, int(ram_mb))}M"]
+    command.extend(parse_jvm_args(jvm_args))
     if session is None:
         command.extend(social.jvm_args())
     agent_jar = str(session.get("agent_jar") or "") if session else ""
@@ -187,9 +217,8 @@ def build_command(
         if log_path.is_file():
             command.append(_substitute(str(log_argument), {"path": str(log_path)}))
 
-    jvm_args = _jvm_arguments(vjson)
-    if jvm_args:
-        command.extend(_substitute(arg, mapping) for arg in jvm_args)
+    if version_jvm:
+        command.extend(_substitute(arg, mapping) for arg in version_jvm)
     else:
         command.extend([f"-Djava.library.path={natives}", "-cp", mapping["classpath"]])
     command.append(str(vjson.get("mainClass") or "net.minecraft.client.main.Main"))
@@ -209,8 +238,13 @@ def launch(
     java: Path,
     server: tuple[str, int] | None = None,
     session: dict | None = None,
+    jvm_args: str = "",
+    game_dir: Path | None = None,
 ) -> tuple[subprocess.Popen, Path]:
-    command = build_command(data_dir, version_id, nickname, ram_mb, java, server, session)
+    game_dir = Path(game_dir) if game_dir else Path(data_dir)
+    command = build_command(
+        data_dir, version_id, nickname, ram_mb, java, server, session, jvm_args, game_dir
+    )
     logs_dir = Path(data_dir) / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     log_path = logs_dir / f"vleyz-{time.strftime('%Y%m%d-%H%M%S')}.log"
@@ -220,7 +254,7 @@ def launch(
     try:
         process = subprocess.Popen(
             command,
-            cwd=str(data_dir),
+            cwd=str(game_dir),
             stdout=handle,
             stderr=subprocess.STDOUT,
             creationflags=CREATE_NO_WINDOW,

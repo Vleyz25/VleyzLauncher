@@ -8,6 +8,7 @@ import threading
 from vleyzlauncher import APP_VERSION
 from vleyzlauncher.core import elyby as elyby_core
 from vleyzlauncher.core import java as java_core
+from vleyzlauncher.core import instances as instances_core
 from vleyzlauncher.core import launch as launch_core
 from vleyzlauncher.core import loaders, paths, servers, versions
 from vleyzlauncher.core import microsoft as microsoft_core
@@ -86,7 +87,8 @@ def cli_command(game: str, loader: str, nickname: str, ram_mb: int, server_addr:
         if not server:
             print(f"Некорректный адрес сервера: {server_addr}")
             return 1
-    servers.sync_servers_dat(data_dir, cfg)
+    game_dir = instances_core.ensure(data_dir, version_id)
+    servers.sync_servers_dat(game_dir, cfg)
     session = None
     mode = str(cfg.get("account_mode") or "offline")
     try:
@@ -101,7 +103,10 @@ def cli_command(game: str, loader: str, nickname: str, ram_mb: int, server_addr:
         return 1
     if session:
         nickname = str(session.get("profile_name") or nickname)
-    command = launch_core.build_command(data_dir, version_id, nickname, ram_mb, found[0], server, session)
+    command = launch_core.build_command(
+        data_dir, version_id, nickname, ram_mb, found[0], server, session,
+        str(cfg.get("jvm_args") or ""), game_dir,
+    )
     print(" ".join(command))
     return 0
 

@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from . import secure
+from .. import i18n
 
 log = logging.getLogger(__name__)
 
@@ -21,6 +22,8 @@ CONFIG_DEFAULTS = {
     "selected_version": "",
     "selected_loader": "vanilla",
     "theme": "dark",
+    "language": "ru",
+    "jvm_args": "",
     "profiles": [],
     "active_profile": "",
     "ely_auth": {},
@@ -167,14 +170,18 @@ def human_size(num: float) -> str:
     num = float(max(0, num))
     for unit in ("Б", "КБ", "МБ", "ГБ"):
         if num < 1024 or unit == "ГБ":
+            label = i18n.tr(unit)
             if unit == "Б":
-                return f"{int(num)} {unit}"
-            return f"{num:.1f} {unit}".replace(".", ",")
+                return f"{int(num)} {label}"
+            value = f"{num:.1f}"
+            if i18n.CURRENT == "ru":
+                value = value.replace(".", ",")
+            return f"{value} {label}"
         num /= 1024
-    return f"{num:.1f} ГБ"
+    return f"{num:.1f} {i18n.tr('ГБ')}"
 
 
 def human_speed(bps: float) -> str:
     if bps <= 0:
         return "—"
-    return human_size(bps) + "/с"
+    return human_size(bps) + i18n.tr("/с")

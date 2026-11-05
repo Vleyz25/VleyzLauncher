@@ -13,8 +13,19 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from vleyzlauncher import APP_VERSION  # noqa: E402
-from vleyzlauncher.core import launch, net, paths, profiles, secure, social, updates  # noqa: E402
+from vleyzlauncher import APP_VERSION, i18n  # noqa: E402
+from vleyzlauncher.core import (  # noqa: E402
+    instances,
+    launch,
+    modrinth,
+    mods,
+    net,
+    paths,
+    profiles,
+    secure,
+    social,
+    updates,
+)
 
 
 class RangeHandler(http.server.BaseHTTPRequestHandler):
@@ -220,6 +231,161 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(cfg["nickname"], "Alex")
         self.assertTrue(profiles.remove(cfg, second["id"]))
         self.assertEqual(len(profiles.profiles(cfg)), 1)
+
+
+class InstanceTests(unittest.TestCase):
+    def test_ensure_copies_legacy_data_once(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            data = Path(folder)
+            (data / "mods").mkdir()
+            (data / "mods" / "legacy.jar").write_bytes(b"jar")
+            (data / "saves").mkdir()
+            (data / "saves" / "world").mkdir()
+            (data / "saves" / "world" / "level.dat").write_bytes(b"level")
+
+            target = instances.ensure(data, "1.20.1-fabric")
+            self.assertTrue((target / "mods" / "legacy.jar").is_file())
+            self.assertTrue((target / "saves" / "world" / "level.dat").is_file())
+            self.assertTrue((target / "config").is_dir())
+
+            # повторный ensure не перезаписывает изменения инстанса
+            (target / "mods" / "legacy.jar").write_bytes(b"changed")
+            instances.ensure(data, "1.20.1-fabric")
+            self.assertEqual((target / "mods" / "legacy.jar").read_bytes(), b"changed")
+
+    def test_mods_are_scoped_to_instance(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            data = Path(folder)
+            target = instances.ensure(data, "1.20.1-fabric")
+            (target / "mods" / "a.jar").write_bytes(b"a")
+            self.assertEqual([m["name"] for m in mods.list_mods(data, "1.20.1-fabric")], ["a.jar"])
+            self.assertEqual(mods.list_mods(data, "1.20.1-forge"), [])
+            self.assertTrue(mods.set_enabled(data, "a.jar", False, "1.20.1-fabric"))
+            self.assertTrue((target / "mods-disabled" / "a.jar").is_file())
+
+
+class JvmArgsTests(unittest.TestCase):
+    def test_parse_quotes_and_windows_paths(self) -> None:
+        parsed = launch.parse_jvm_args('"-Dfoo=bar baz" -XX:+UseG1GC -Dpath=C:\\Games')
+        self.assertEqual(parsed[0], "-Dfoo=bar baz")
+        self.assertIn("-XX:+UseG1GC", parsed)
+        self.assertIn("-Dpath=C:\\Games", parsed)
+        self.assertEqual(launch.parse_jvm_args(""), [])
+
+    def test_build_command_uses_extra_args_and_game_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            data = Path(folder)
+            version = {
+                "id": "1.20.1",
+                "type": "release",
+                "mainClass": "net.minecraft.client.main.Main",
+                "assets": "5",
+                "assetIndex": {"id": "5"},
+                "libraries": [],
+                "arguments": {
+                    "jvm": ["-cp", "${classpath}"],
+                    "game": ["--username", "${auth_player_name}", "--gameDir", "${game_directory}"],
+                },
+            }
+            path = data / "versions" / "1.20.1"
+            path.mkdir(parents=True)
+            (path / "1.20.1.json").write_text(json.dumps(version), encoding="utf-8")
+            game_dir = data / "instances" / "1.20.1"
+            command = launch.build_command(
+                data, "1.20.1", "Steve", 2048, Path("java.exe"),
+                jvm_args="-Dfoo=bar", game_dir=game_dir,
+            )
+            self.assertIn("-Dfoo=bar", command)
+            index = command.index("--gameDir")
+            self.assertEqual(Path(command[index + 1]), game_dir)
+
+
+class ModrinthTests(unittest.TestCase):
+    def setUp(self) -> None:
+        modrinth._project_cache.clear()
+
+    def test_search_filters_by_game_and_loader(self) -> None:
+        seen: list[str] = []
+        payload = {"hits": [{
+            "project_id": "abc", "slug": "abc", "title": "ABC",
+            "description": "test", "downloads": 10, "author": "me",
+        }]}
+
+        def fake(url, timeout=30, retries=4):
+            seen.append(url)
+            return payload
+
+        with mock.patch.object(modrinth.net, "fetch_json", side_effect=fake):
+            result = modrinth.search("abc", "1.20.1", "fabric")
+        self.assertEqual(result[0]["title"], "ABC")
+        self.assertIn("categories%3Afabric", seen[0])
+        self.assertIn("versions%3A1.20.1", seen[0])
+
+    def test_resolve_includes_required_dependency(self) -> None:
+        root_version = {
+            "id": "root-v", "project_id": "root", "version_number": "1.0",
+            "version_type": "release", "date_published": "2026-01-02",
+            "files": [{"url": "https://example/root.jar", "filename": "root.jar",
+                       "primary": True, "size": 10, "hashes": {"sha1": "a"}}],
+            "dependencies": [{"project_id": "dep", "dependency_type": "required"}],
+        }
+        dep_version = {
+            "id": "dep-v", "project_id": "dep", "version_number": "2.0",
+            "version_type": "release", "date_published": "2026-01-01",
+            "files": [{"url": "https://example/dep.jar", "filename": "dep.jar",
+                       "primary": True, "size": 20, "hashes": {"sha1": "b"}}],
+            "dependencies": [],
+        }
+
+        def fake(url, timeout=30, retries=4):
+            if "/search" in url:
+                return {"hits": []}
+            if "/project/root/version" in url:
+                return [root_version]
+            if "/project/dep/version" in url:
+                return [dep_version]
+            if "/project/root" in url:
+                return {"title": "Root"}
+            if "/project/dep" in url:
+                return {"title": "Dep"}
+            if "/version/" in url:
+                return dep_version
+            return {}
+
+        with mock.patch.object(modrinth.net, "fetch_json", side_effect=fake):
+            plan = modrinth.resolve("root", "1.20.1", "fabric")
+        self.assertEqual([item["filename"] for item in plan], ["dep.jar", "root.jar"])
+        self.assertTrue(plan[0]["dependency"])
+
+    def test_install_skips_valid_file_and_downloads_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            dest = Path(folder)
+            (dest / "dep.jar").write_bytes(b"ok")
+            files = [
+                {"title": "Dep", "filename": "dep.jar", "url": "https://example/dep.jar",
+                 "size": 2, "sha1": None},
+                {"title": "Root", "filename": "root.jar", "url": "https://example/root.jar",
+                 "size": 3, "sha1": None},
+            ]
+            with mock.patch.object(modrinth.net, "download") as download:
+                result = modrinth.install(files, dest)
+            self.assertEqual(result["skipped"], ["dep.jar"])
+            self.assertEqual(result["installed"], ["root.jar"])
+            download.assert_called_once()
+
+
+class I18nTests(unittest.TestCase):
+    def test_english_translation_and_patterns(self) -> None:
+        previous = i18n.CURRENT
+        try:
+            i18n.set_language("en")
+            self.assertEqual(i18n.tr("Главная"), "Home")
+            self.assertEqual(i18n.tr("Установлена · 1,2 ГБ"), "Installed · 1,2 ГБ")
+            self.assertEqual(i18n.tr("Найдено: 5"), "Found: 5")
+            i18n.set_language("ru")
+            self.assertEqual(i18n.tr("Главная"), "Главная")
+        finally:
+            i18n.set_language(previous)
 
 
 if __name__ == "__main__":

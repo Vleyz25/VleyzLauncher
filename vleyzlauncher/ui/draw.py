@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 
+from .. import i18n
 from . import theme
 
 
@@ -76,6 +77,7 @@ def gradient_band(cv, x0, y0, x1, y1, left, right, steps=120, tags=None):
 
 def text(cv, x, y, value, size=10, color=theme.TEXT, weight="normal", anchor="w", tags=None,
          family=theme.FONT, justify="left", width=0):
+    value = i18n.tr(value)
     return cv.create_text(
         x, y, text=value, fill=color, anchor=anchor, justify=justify, width=width or 0,
         font=(family if weight == "normal" else theme.FONT_SEMI, size, weight if weight != "normal" else "normal"),
@@ -89,6 +91,7 @@ def dot(cv, x, y, r, color, tags=None):
 
 def chip(cv, x, y, label, color, tags=None, size=8, pad_x=9, height=22, anchor="w", bg=None):
     """Небольшой бейдж. Возвращает (id_фона, id_текста, ширина)."""
+    label = i18n.tr(label)
     approx = len(label) * size * 0.58 + pad_x * 2
     if anchor == "e":
         x0 = x - approx

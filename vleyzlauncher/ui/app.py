@@ -13,13 +13,15 @@ import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
-from .. import APP_NAME, APP_VERSION
+from .. import APP_NAME, APP_VERSION, i18n
 from ..core import java as java_core
 from ..core import launch as launch_core
 from ..core import loaders
 from ..core import elyby as elyby_core
+from ..core import instances as instances_core
 from ..core import microsoft as microsoft_core
 from ..core import mods as mods_core
+from ..core import modrinth as modrinth_core
 from ..core import paths
 from ..core import profiles as profiles_core
 from ..core import servers as servers_core
@@ -78,7 +80,7 @@ class CanvasButton:
         self.bg_id = draw.rr(self.cv, x0, y0, x1, y1, self.radius, fill=self.bg,
                              outline=self._outline(), width=1, tags=self.tag)
         self.label_id = self.cv.create_text(
-            (x0 + x1) / 2, (y0 + y1) / 2, text=label, tags=self.tag, anchor="center",
+            (x0 + x1) / 2, (y0 + y1) / 2, text=i18n.tr(label), tags=self.tag, anchor="center",
             font=(theme.FONT_SEMI, size), fill=self._fg(),
         )
         self.cv.tag_bind(self.tag, "<Enter>", self._enter)
@@ -132,7 +134,7 @@ class CanvasButton:
         self.cv.itemconfigure(self.label_id, fill=self._fg())
 
     def set_label(self, label: str):
-        self.cv.itemconfigure(self.label_id, text=label)
+        self.cv.itemconfigure(self.label_id, text=i18n.tr(label))
 
     def set_kind(self, kind: str):
         self.kind = kind
@@ -149,6 +151,7 @@ class Launcher(tk.Tk):
         self.title(APP_NAME)
         self.cfg = paths.load_config()
         theme.apply(str(self.cfg.get("theme") or "dark"))
+        i18n.set_language(str(self.cfg.get("language") or "ru"))
         profiles_core.ensure(self.cfg)
         self.game = str(self.cfg.get("selected_version") or "")
         self.loader = str(self.cfg.get("selected_loader") or "vanilla")
@@ -200,9 +203,19 @@ class Launcher(tk.Tk):
         self.update_info: dict | None = None
         self.update_checked = False
         self._update_busy = False
+        self._update_prompted = False
         self.update_button: CanvasButton | None = None
         self._error_shown = False
         self._install_repair = False
+        self._mr = {
+            "query": "",
+            "results": [],
+            "page": 0,
+            "busy": False,
+            "error": "",
+            "status": "",
+            "installing": "",
+        }
 
         self.withdraw()
         self.overrideredirect(True)
@@ -360,13 +373,38 @@ class Launcher(tk.Tk):
             self._draw_update_badge()
             if manual:
                 messagebox.showinfo(
-                    "Обновление",
-                    f"Доступна версия {info['version']}.\nСейчас у вас {APP_VERSION}.\n\n"
-                    "Нажмите кнопку «Обновление» в левом меню, чтобы скачать установщик.",
+                    i18n.tr("Обновление"),
+                    i18n.tr(
+                        f"Доступна версия {info['version']}.\nСейчас у вас {APP_VERSION}.\n\n"
+                        "Нажмите кнопку «Обновление» в левом меню, чтобы скачать установщик."
+                    ),
                 )
+            elif not self._update_prompted:
+                self._update_prompted = True
+                self.after(300, self._prompt_update)
             return
         if manual:
-            messagebox.showinfo("Обновление", f"У вас последняя версия — {APP_VERSION}.")
+            messagebox.showinfo(i18n.tr("Обновление"),
+                                i18n.tr(f"У вас последняя версия — {APP_VERSION}."))
+
+    def _prompt_update(self) -> None:
+        """Само предложение обновиться при запуске: окно, а не только кнопка."""
+        info = self.update_info
+        if not info:
+            return
+        version = info.get("version") or i18n.tr("новую версию")
+        if not messagebox.askyesno(
+            i18n.tr("Обновление"),
+            i18n.tr(
+                f"Вышла версия {version}.\nСейчас у вас {APP_VERSION}.\n\n"
+                "Скачать и установить сейчас? Лаунчер закроется и запустится снова."
+            ),
+        ):
+            return
+        if not getattr(sys, "frozen", False) or not info.get("setup_url"):
+            webbrowser.open(updates_core.download_url(info))
+            return
+        self._download_update(info)
 
     def _open_update(self) -> None:
         info = self.update_info or {}
@@ -377,11 +415,13 @@ class Launcher(tk.Tk):
             # Из исходников нельзя заменить запущенный процесс — ведём на релиз.
             webbrowser.open(url)
             return
-        version = info.get("version") or "новую версию"
+        version = info.get("version") or i18n.tr("новую версию")
         if not messagebox.askyesno(
-            "Обновление",
-            f"Скачать и установить {version}?\n\n"
-            "Лаунчер закроется и запустится снова. Настройки, профили и миры останутся.",
+            i18n.tr("Обновление"),
+            i18n.tr(
+                f"Скачать и установить {version}?\n\n"
+                "Лаунчер закроется и запустится снова. Настройки, профили и миры останутся."
+            ),
         ):
             return
         self._download_update(info)
@@ -431,7 +471,8 @@ class Launcher(tk.Tk):
                 self.update_button.set_label(
                     f"Обновление {((self.update_info or {}).get('version') or '').strip()}".strip()
                 )
-            messagebox.showerror("Обновление", f"Не удалось скачать обновление:\n{error}")
+            messagebox.showerror(i18n.tr("Обновление"),
+                                 i18n.tr(f"Не удалось скачать обновление:\n{error}"))
             return
         target = paths.app_dir()
         try:
@@ -444,7 +485,8 @@ class Launcher(tk.Tk):
             else:
                 os.startfile(str(dest))
         except OSError as exc:
-            messagebox.showerror("Обновление", f"Не удалось запустить установщик:\n{exc}")
+            messagebox.showerror(i18n.tr("Обновление"),
+                                 i18n.tr(f"Не удалось запустить установщик:\n{exc}"))
             return
         self.after(500, self._on_close)
 
@@ -585,6 +627,14 @@ class Launcher(tk.Tk):
 
     def _data_dir(self) -> Path:
         return paths.data_dir(self.cfg)
+
+    def _instance_meta(self) -> tuple[str, str]:
+        """Версия и загрузчик выбранной установленной сборки."""
+        if self.installed_id:
+            for row in loaders.installed_versions(self._data_dir()):
+                if row["id"] == self.installed_id:
+                    return str(row["game"]), str(row["loader"])
+        return self.game, self.loader
 
     def _accent(self) -> str:
         return theme.loader_accent(self.loader)
@@ -1036,7 +1086,7 @@ class Launcher(tk.Tk):
         draw.hline(cv, inner0, inner1, 552, theme.DIVIDER, tags="page")
         draw.text(cv, inner0, 572, self.log_lines[-1] if self.log_lines else "Готово к запуску",
                   7, theme.DIM, "normal", "w", "page")
-        draw.text(cv, inner0, 592, "Моды: папка mods · профили хранятся в настройках лаунчера",
+        draw.text(cv, inner0, 592, "Моды: папка сборки mods · профили хранятся в настройках лаунчера",
                   7, theme.MUTED, "normal", "w", "page")
 
     # ------------------------------------------------------------ профили
@@ -1054,7 +1104,7 @@ class Launcher(tk.Tk):
             button.destroy()
         self.modal_buttons = []
         for name in ("modal_name", "modal_nick", "modal_srv_name", "modal_srv_addr",
-                     "ely_login", "ely_password", "ely_totp"):
+                     "ely_login", "ely_password", "ely_totp", "mr_query"):
             entry = self.entries.get(name)
             if entry is not None:
                 entry.place_forget()
@@ -1093,6 +1143,8 @@ class Launcher(tk.Tk):
             self._draw_server_form(px0, px1, py0, py1)
         elif self.modal == "account":
             self._draw_account(px0, px1, py0, py1)
+        elif self.modal == "modrinth":
+            self._draw_modrinth(px0, px1, py0, py1)
         else:
             self._draw_profile_form(px0, px1, py0, py1)
 
@@ -1828,6 +1880,12 @@ class Launcher(tk.Tk):
         self.configure(bg=theme.BG_TOP)
         self._rebuild_all()
 
+    def _set_language(self, name: str) -> None:
+        self.cfg["language"] = i18n.set_language(name)
+        paths.save_config(self.cfg)
+        self._rebuild_all()
+        self._push_log("Language: English" if i18n.CURRENT == "en" else "Язык: русский")
+
     def _rebuild_all(self) -> None:
         self.canvas.delete("all")
         self._hide_entries()
@@ -1845,23 +1903,45 @@ class Launcher(tk.Tk):
     def _draw_mods(self):
         cv = self.canvas
         data_dir = self._data_dir()
-        items = mods_core.list_mods(data_dir)
+        instance_id = self.installed_id
+        _instance_game, instance_loader = self._instance_meta()
+        if instance_id:
+            try:
+                instances_core.ensure(data_dir, instance_id)
+            except OSError:
+                pass
+        items = mods_core.list_mods(data_dir, instance_id) if instance_id else []
         self._mods_signature = mods_core.signature(items)
         enabled_count = sum(1 for item in items if item["enabled"])
         self._header("Моды", f"Включено {enabled_count} из {len(items)} · файлы .jar из папки mods")
 
         draw.rr(cv, CX0, 116, CX1, 158, 12, fill=theme.CARD, outline=theme.BORDER, tags="page")
         draw.text(cv, CX0 + 18, 132, "Папка модов", 8, theme.DIM, "normal", "w", "page")
-        draw.text(cv, CX0 + 18, 147, mods_core.folder_hint(data_dir)[:80], 8, theme.MUTED,
+        hint = mods_core.folder_hint(data_dir, instance_id) if instance_id else "—"
+        draw.text(cv, CX0 + 18, 147, hint[:80], 8, theme.MUTED,
                   "normal", "w", "page")
+        modrinth = CanvasButton(self, CX1 - 486, 122, CX1 - 342, 152, "Modrinth",
+                               command=self._open_modrinth_modal, kind="primary", size=9,
+                               enabled=bool(instance_id and instance_loader != "vanilla"))
         add = CanvasButton(self, CX1 - 330, 122, CX1 - 186, 152, "Добавить",
-                           command=self._add_mods, kind="primary", size=9)
+                           command=self._add_mods, kind="ghost", size=9,
+                           enabled=bool(instance_id))
         refresh = CanvasButton(self, CX1 - 174, 122, CX1 - 14, 152, "Обновить",
                                command=lambda: self._show_page("mods"), kind="ghost", size=9)
-        self.page_buttons.extend([add, refresh])
+        self.page_buttons.extend([modrinth, add, refresh])
 
         y = 174
-        if self.loader == "vanilla":
+        if not instance_id:
+            draw.rr(cv, CX0, y, CX1, y + 112, 16, fill=theme.CARD, outline=theme.BORDER, tags="page")
+            draw.text(cv, CX0 + 28, y + 36, "Сначала установите версию с загрузчиком.",
+                      12, theme.TEXT, "bold", "w", "page")
+            draw.text(cv, CX0 + 28, y + 64,
+                      "У каждой сборки своя папка mods, saves и config. Выберите установленную "
+                      "версию на странице «Библиотека».",
+                      8, theme.MUTED, "normal", "w", "page")
+            return
+
+        if instance_loader == "vanilla":
             draw.rr(cv, CX0, y, CX1, y + 38, 10, fill=theme.WARNING_BG, outline=theme.WARNING_BORDER, tags="page")
             draw.text(cv, CX0 + 16, y + 19,
                       "Выбран Vanilla — моды не загрузятся. Переключите загрузчик на Fabric, Forge "
@@ -1929,7 +2009,7 @@ class Launcher(tk.Tk):
         self._show_page("mods")
 
     def _toggle_mod(self, name, enabled):
-        if mods_core.set_enabled(self._data_dir(), name, enabled):
+        if mods_core.set_enabled(self._data_dir(), name, enabled, self.installed_id):
             self._push_log(f"{'Включён' if enabled else 'Отключён'} мод {name}")
         else:
             self._push_log(f"Не удалось переключить {name}")
@@ -1937,13 +2017,185 @@ class Launcher(tk.Tk):
         self._show_page("mods")
 
     def _add_mods(self):
-        folder = mods_core.mods_dir(self._data_dir())
+        if not self.installed_id:
+            self._push_log("Сначала установите версию с загрузчиком.")
+            return
+        folder = mods_core.mods_dir(self._data_dir(), self.installed_id)
         folder.mkdir(parents=True, exist_ok=True)
         try:
             os.startfile(str(folder))  # noqa: S606 - открытие проводника
         except OSError:
             self._push_log("Проводник не открылся")
         self._push_log("Скопируйте .jar в папку mods — список обновится сам")
+
+    # --------------------------------------------------------- Modrinth
+
+    def _open_modrinth_modal(self) -> None:
+        if not self.installed_id:
+            self._push_log("Сначала установите версию с загрузчиком.")
+            return
+        _game, loader = self._instance_meta()
+        if loader not in ("fabric", "forge", "neoforge"):
+            self._push_log("Моды Modrinth доступны для Fabric, Forge или NeoForge")
+            return
+        self.modal = "modrinth"
+        self._hide_entries()
+        self._draw_modal()
+        if not self._mr["results"] and not self._mr["busy"]:
+            self._modrinth_search()
+
+    def _draw_modrinth(self, px0, px1, py0, py1) -> None:
+        cv = self.canvas
+        game, loader = self._instance_meta()
+        draw.text(cv, px0 + 28, py0 + 34, "Поиск в Modrinth", 14, theme.TEXT, "bold", "w", "modal")
+        draw.text(cv, px0 + 28, py0 + 56,
+                  f"{game} · {loader} · {self.installed_id or ''}", 8, theme.MUTED,
+                  "normal", "w", "modal")
+        close = CanvasButton(self, px1 - 62, py0 + 20, px1 - 24, py0 + 52, "×",
+                             command=self._close_modal, kind="ghost", size=12)
+        self.modal_buttons.append(close)
+
+        field_y = py0 + 76
+        draw.rr(cv, px0 + 28, field_y, px1 - 150, field_y + 38, 10, fill=theme.FIELD,
+                outline=theme.BORDER, tags="modal")
+        self.entries.get("mr_query") or self._entry("mr_query", str(self._mr.get("query") or ""))
+        self._place_entry("mr_query", px0 + 28, field_y, px1 - 178, 38)
+        entry = self.entries["mr_query"]
+        entry.bind("<Return>", lambda _e: self._modrinth_search())
+        search = CanvasButton(self, px1 - 138, field_y, px1 - 28, field_y + 38, "Искать",
+                              command=self._modrinth_search, kind="primary", size=9,
+                              enabled=not self._mr["busy"])
+        self.modal_buttons.append(search)
+
+        status_y = field_y + 54
+        if self._mr["error"]:
+            draw.text(cv, px0 + 28, status_y, str(self._mr["error"])[:92], 8, theme.DANGER,
+                      "normal", "w", "modal")
+        elif self._mr["status"]:
+            draw.text(cv, px0 + 28, status_y, str(self._mr["status"])[:92], 8, theme.ACCENT,
+                      "normal", "w", "modal")
+        elif self._mr["busy"]:
+            draw.text(cv, px0 + 28, status_y, "Ищу…", 8, theme.MUTED, "normal", "w", "modal")
+        else:
+            draw.text(cv, px0 + 28, status_y, "Введите запрос и нажмите «Искать».",
+                      8, theme.DIM, "normal", "w", "modal")
+
+        results = self._mr.get("results") or []
+        per_page = 3
+        pages = max(1, (len(results) + per_page - 1) // per_page)
+        self._mr["page"] = min(int(self._mr.get("page") or 0), pages - 1)
+        chunk = results[self._mr["page"] * per_page:(self._mr["page"] + 1) * per_page]
+        y = field_y + 78
+        if not chunk and not self._mr["busy"]:
+            draw.rr(cv, px0 + 28, y, px1 - 28, y + 64, 12, fill=theme.CARD,
+                    outline=theme.BORDER, tags="modal")
+            draw.text(cv, px0 + 46, y + 26, "Ничего не найдено. Попробуйте другой запрос.",
+                      9, theme.MUTED, "normal", "w", "modal")
+        for item in chunk:
+            draw.rr(cv, px0 + 28, y, px1 - 28, y + 68, 12, fill=theme.CARD,
+                    outline=theme.BORDER, tags="modal")
+            draw.text(cv, px0 + 46, y + 20, str(item.get("title") or "Mod")[:52], 10,
+                      theme.TEXT, "bold", "w", "modal")
+            description = str(item.get("description") or "")[:78]
+            draw.text(cv, px0 + 46, y + 38, description, 8, theme.MUTED, "normal", "w", "modal")
+            downloads = int(item.get("downloads") or 0)
+            draw.text(cv, px0 + 46, y + 55, f"{downloads:,} загрузок".replace(",", " "),
+                      7, theme.DIM, "normal", "w", "modal")
+            installing = self._mr.get("installing") == item.get("id")
+            install = CanvasButton(
+                self, px1 - 144, y + 16, px1 - 40, y + 52,
+                "Устанавливаю…" if installing else "Установить",
+                command=lambda it=item: self._modrinth_install(it),
+                kind="ghost" if installing else "primary", size=8,
+                enabled=not self._mr["busy"],
+            )
+            self.modal_buttons.append(install)
+            y += 74
+
+        if pages > 1:
+            draw.text(cv, (px0 + px1) / 2, py1 - 28,
+                      f"стр. {self._mr['page'] + 1} / {pages}", 8, theme.MUTED,
+                      "normal", "center", "modal")
+            prev = CanvasButton(self, px1 - 214, py1 - 42, px1 - 168, py1 - 14, "←",
+                                command=lambda: self._modrinth_go(-1), kind="ghost", size=9,
+                                enabled=self._mr["page"] > 0 and not self._mr["busy"])
+            nxt = CanvasButton(self, px1 - 160, py1 - 42, px1 - 114, py1 - 14, "→",
+                               command=lambda: self._modrinth_go(1), kind="ghost", size=9,
+                               enabled=self._mr["page"] < pages - 1 and not self._mr["busy"])
+            self.modal_buttons.extend([prev, nxt])
+
+    def _modrinth_search(self) -> None:
+        if self._mr["busy"]:
+            return
+        entry = self.entries.get("mr_query")
+        query = entry.get().strip() if entry is not None else str(self._mr.get("query") or "")
+        self._mr.update(query=query, busy=True, error="", status="Ищу…", page=0)
+        self._draw_modal()
+        game, loader = self._instance_meta()
+
+        def work() -> None:
+            try:
+                results = modrinth_core.search(query, game, loader)
+                error = ""
+            except modrinth_core.ModrinthError as exc:
+                results = []
+                error = str(exc)
+            except Exception as exc:  # noqa: BLE001 - показываем пользователю
+                results = []
+                error = str(exc)
+            self._mr.update(results=results, busy=False, error=error,
+                            status=f"Найдено: {len(results)}" if not error else "")
+            self._post(self._modrinth_redraw)
+
+        threading.Thread(target=work, daemon=True, name="modrinth-search").start()
+
+    def _modrinth_go(self, delta: int) -> None:
+        self._mr["page"] = max(0, int(self._mr.get("page") or 0) + delta)
+        self._draw_modal()
+
+    def _modrinth_install(self, item: dict) -> None:
+        if self._mr["busy"] or not self.installed_id:
+            return
+        project_id = str(item.get("id") or "")
+        if not project_id:
+            return
+        self._mr.update(busy=True, installing=project_id, error="", status="Устанавливаю…")
+        self._draw_modal()
+        data_dir = self._data_dir()
+        instance_id = self.installed_id
+        game, loader = self._instance_meta()
+        cancel = threading.Event()
+
+        def work() -> None:
+            try:
+                plan = modrinth_core.resolve(project_id, game, loader)
+                self._push_log_threadsafe(
+                    f"Modrinth: {item.get('title')} + зависимостей: {max(0, len(plan) - 1)}"
+                )
+                result = modrinth_core.install(
+                    plan,
+                    mods_core.mods_dir(data_dir, instance_id),
+                    log=self._push_log_threadsafe,
+                    cancel=cancel,
+                )
+                status = f"Установлено файлов: {len(result['installed']) + len(result['skipped'])}"
+                error = ""
+            except modrinth_core.ModrinthError as exc:
+                status = ""
+                error = str(exc)
+            except Exception as exc:  # noqa: BLE001 - показываем пользователю
+                status = ""
+                error = str(exc)
+            self._mr.update(busy=False, installing="", status=status, error=error)
+            self._post(self._modrinth_redraw)
+
+        threading.Thread(target=work, daemon=True, name="modrinth-install").start()
+
+    def _modrinth_redraw(self) -> None:
+        if self.modal == "modrinth":
+            self._draw_modal()
+        elif self.page == "mods":
+            self._show_page("mods")
 
     # ------------------------------------------------------------ библиотека
 
@@ -1987,7 +2239,8 @@ class Launcher(tk.Tk):
             draw.dot(cv, CX0 + 84, y + 68, 3, status_color, tags="page")
             draw.text(cv, CX0 + 94, y + 68, status_text, 8, status_color, "normal", "w", "page")
 
-            path_text = str(item["path"])
+            instance_path = instances_core.path(data_dir, vid)
+            path_text = str(instance_path if instance_path.is_dir() else item["path"])
             if len(path_text) > 56:
                 path_text = "…" + path_text[-55:]
             draw.text(cv, CX0 + 320, y + 68, path_text, 8, theme.DIM, "normal", "w", "page")
@@ -2008,7 +2261,7 @@ class Launcher(tk.Tk):
             self.page_buttons.extend([play_btn, open_btn, del_btn])
             y += 100
 
-        draw.text(cv, CX0, y + 14, f"Папка игры: {data_dir}"[:110], 8, theme.DIM, "normal", "w", "page")
+        draw.text(cv, CX0, y + 14, f"Папка сборок: {data_dir / 'instances'}"[:110], 8, theme.DIM, "normal", "w", "page")
         if pages > 1:
             draw.text(cv, CX1 - 90, y + 14, f"стр. {self.library_offset + 1} / {pages}", 8,
                       theme.MUTED, "normal", "e", "page")
@@ -2035,9 +2288,9 @@ class Launcher(tk.Tk):
 
     def _on_focus(self, _event=None):
         """Вернулись в окно — проверяем, не появились ли новые моды в папке."""
-        if self.page != "mods":
+        if self.page != "mods" or self.modal:
             return
-        items = mods_core.list_mods(self._data_dir())
+        items = mods_core.list_mods(self._data_dir(), self.installed_id)
         if mods_core.signature(items) != self._mods_signature:
             self._mods_signature = mods_core.signature(items)
             self._show_page("mods")
@@ -2051,7 +2304,9 @@ class Launcher(tk.Tk):
             self._push_log("Проводник не открылся")
 
     def _open_version_folder(self, vid: str):
-        target = self._data_dir() / "versions" / vid
+        target = instances_core.path(self._data_dir(), vid)
+        if not target.is_dir():
+            target = self._data_dir() / "versions" / vid
         if not target.is_dir():
             target = self._data_dir()
         try:
@@ -2084,63 +2339,81 @@ class Launcher(tk.Tk):
     def _draw_settings(self):
         cv = self.canvas
         self._header("Настройки", "Никнейм, память, Java и папка игры")
-        draw.rr(cv, CX0, 132, CX1, 648, 18, fill=theme.PANEL, outline=theme.PANEL_BORDER, tags="page")
+        draw.rr(cv, CX0, 132, CX1, 680, 18, fill=theme.PANEL, outline=theme.PANEL_BORDER, tags="page")
 
-        draw.text(cv, CX0 + 28, 166, "Никнейм", 9, theme.MUTED, "normal", "w", "page")
-        draw.rr(cv, CX0 + 28, 184, CX0 + 348, 222, 10, fill=theme.FIELD, outline=theme.BORDER, tags="page")
+        draw.text(cv, CX0 + 28, 160, "Никнейм", 9, theme.MUTED, "normal", "w", "page")
+        draw.rr(cv, CX0 + 28, 178, CX0 + 348, 216, 10, fill=theme.FIELD, outline=theme.BORDER, tags="page")
         self.entries.get("nick_settings") or self._entry("nick_settings", self.cfg.get("nickname") or "Steve")
-        self._place_entry("nick_settings", CX0 + 28, 184, 320, 38)
-        draw.text(cv, CX0 + 360, 203, "до 16 символов, для одиночной игры", 8, theme.DIM, "normal", "w", "page")
+        self._place_entry("nick_settings", CX0 + 28, 178, 320, 38)
+        draw.text(cv, CX0 + 360, 197, "до 16 символов, для одиночной игры", 8, theme.DIM, "normal", "w", "page")
 
-        draw.text(cv, CX0 + 28, 254, "Оперативная память", 9, theme.MUTED, "normal", "w", "page")
-        self._draw_ram_slider(CX0 + 28, 288)
+        draw.text(cv, CX0 + 28, 244, "Оперативная память", 9, theme.MUTED, "normal", "w", "page")
+        self._draw_ram_slider(CX0 + 28, 276)
 
-        draw.text(cv, CX0 + 28, 336, "Java", 9, theme.MUTED, "normal", "w", "page")
-        draw.rr(cv, CX0 + 28, 354, CX0 + 480, 392, 10, fill=theme.FIELD, outline=theme.BORDER, tags="page")
+        draw.text(cv, CX0 + 28, 316, "Java", 9, theme.MUTED, "normal", "w", "page")
+        draw.rr(cv, CX0 + 28, 334, CX0 + 480, 372, 10, fill=theme.FIELD, outline=theme.BORDER, tags="page")
         self.entries.get("java") or self._entry("java", self.cfg.get("java_path") or "")
-        self._place_entry("java", CX0 + 28, 354, 452, 38)
-        pick = CanvasButton(self, CX0 + 488, 352, CX0 + 604, 394, "Обзор",
+        self._place_entry("java", CX0 + 28, 334, 452, 38)
+        pick = CanvasButton(self, CX0 + 488, 332, CX0 + 604, 374, "Обзор",
                             command=self._pick_java, kind="ghost", size=9)
-        auto = CanvasButton(self, CX0 + 612, 352, CX0 + 728, 394, "Авто",
+        auto = CanvasButton(self, CX0 + 612, 332, CX0 + 728, 374, "Авто",
                             command=self._auto_java, kind="ghost", size=9)
-        download = CanvasButton(self, CX0 + 736, 352, CX0 + 844, 394,
+        download = CanvasButton(self, CX0 + 736, 332, CX0 + 844, 374,
                                 "Скачать Java" if not self.java_ok else "Проверить",
                                 command=self._install_java, kind="ghost", size=9,
                                 enabled=not self.java_busy)
         self.btn_java = download
         self.page_buttons.extend([pick, auto, download])
-        self.settings_java_id = draw.text(cv, CX0 + 28, 408, self.java_text, 8,
+        self.settings_java_id = draw.text(cv, CX0 + 28, 386, self.java_text, 8,
                                           theme.ACCENT if self.java_ok else theme.DANGER,
                                           "normal", "w", "page")
-        draw.text(cv, CX0 + 400, 408, "нужную JRE лаунчер может скачать сам — кнопка справа",
+        draw.text(cv, CX0 + 400, 386, "нужную JRE лаунчер может скачать сам — кнопка справа",
                   8, theme.DIM, "normal", "w", "page")
 
-        draw.text(cv, CX0 + 28, 438, "Папка игры", 9, theme.MUTED, "normal", "w", "page")
-        draw.rr(cv, CX0 + 28, 456, CX0 + 480, 494, 10, fill=theme.FIELD, outline=theme.BORDER, tags="page")
+        draw.text(cv, CX0 + 28, 414, "Аргументы JVM", 9, theme.MUTED, "normal", "w", "page")
+        draw.rr(cv, CX0 + 28, 432, CX0 + 844, 470, 10, fill=theme.FIELD, outline=theme.BORDER, tags="page")
+        self.entries.get("jvm_args") or self._entry("jvm_args", str(self.cfg.get("jvm_args") or ""))
+        self._place_entry("jvm_args", CX0 + 28, 432, 816, 38)
+        draw.text(cv, CX0 + 28, 478,
+                  "Дополнительные аргументы Java, например -XX:+UseG1GC", 8,
+                  theme.DIM, "normal", "w", "page")
+
+        draw.text(cv, CX0 + 28, 500, "Папка игры", 9, theme.MUTED, "normal", "w", "page")
+        draw.rr(cv, CX0 + 28, 518, CX0 + 480, 556, 10, fill=theme.FIELD, outline=theme.BORDER, tags="page")
         self.entries.get("data_dir") or self._entry("data_dir", self.cfg.get("data_dir") or "")
-        self._place_entry("data_dir", CX0 + 28, 456, 452, 38)
-        open_btn = CanvasButton(self, CX0 + 488, 454, CX0 + 604, 496, "Открыть",
+        self._place_entry("data_dir", CX0 + 28, 518, 452, 38)
+        open_btn = CanvasButton(self, CX0 + 488, 516, CX0 + 604, 558, "Открыть",
                                 command=self._open_folder, kind="ghost", size=9)
-        logs_btn = CanvasButton(self, CX0 + 612, 454, CX0 + 728, 496, "Логи",
+        logs_btn = CanvasButton(self, CX0 + 612, 516, CX0 + 728, 558, "Логи",
                                 command=self._open_logs, kind="ghost", size=9)
         self.page_buttons.extend([open_btn, logs_btn])
 
-        draw.text(cv, CX0 + 560, 586, "Тема", 9, theme.MUTED, "normal", "w", "page")
-        theme_x = CX0 + 560
+        save = CanvasButton(self, CX0 + 28, 584, CX0 + 208, 630, "Сохранить",
+                            command=self._save_settings, kind="primary", size=10)
+        self.page_buttons.append(save)
+        self.settings_hint = draw.text(cv, CX0 + 224, 607,
+                                       "Путь к Java можно оставить пустым — лаунчер найдёт её сам.",
+                                       8, theme.DIM, "normal", "w", "page")
+
+        draw.text(cv, CX0 + 512, 588, "Тема", 9, theme.MUTED, "normal", "w", "page")
+        theme_x = CX0 + 512
         for key, title in theme.palettes():
             active = theme.CURRENT == key
-            button = CanvasButton(self, theme_x, 598, theme_x + 90, 634, title,
+            button = CanvasButton(self, theme_x, 600, theme_x + 90, 636, title,
                                   command=lambda k=key: self._set_theme(k),
                                   kind="primary" if active else "ghost", size=8)
             self.page_buttons.append(button)
             theme_x += 97
 
-        save = CanvasButton(self, CX0 + 28, 528, CX0 + 208, 578, "Сохранить",
-                            command=self._save_settings, kind="primary", size=10)
-        self.page_buttons.append(save)
-        self.settings_hint = draw.text(cv, CX0 + 224, 553,
-                                       "Путь к Java можно оставить пустым — лаунчер найдёт её сам.",
-                                       8, theme.DIM, "normal", "w", "page")
+        draw.text(cv, CX0 + 558, 588, "Язык", 9, theme.MUTED, "normal", "w", "page")
+        language_x = CX0 + 558
+        for key, title in i18n.LANGUAGES.items():
+            active = i18n.CURRENT == key
+            button = CanvasButton(self, language_x, 600, language_x + 80, 636, title,
+                                  command=lambda k=key: self._set_language(k),
+                                  kind="primary" if active else "ghost", size=8)
+            self.page_buttons.append(button)
+            language_x += 87
 
     def _draw_ram_slider(self, x, y):
         cv = self.canvas
@@ -2174,7 +2447,7 @@ class Launcher(tk.Tk):
         cv.coords(self.ram_fill, *self._round_points(self.ram_x0, self.ram_y - 3,
                                                      max(self.ram_x0 + 6, knob_x), self.ram_y + 3, 3))
         value = self.ram_values[self.ram_index]
-        cv.itemconfigure(self.ram_text, text=f"{value} МБ")
+        cv.itemconfigure(self.ram_text, text=i18n.tr(f"{value} МБ"))
 
     def _round_points(self, x0, y0, x1, y1, r):
         import math
@@ -2188,8 +2461,8 @@ class Launcher(tk.Tk):
 
     def _pick_java(self):
         chosen = filedialog.askopenfilename(
-            title="Выбери javaw.exe",
-            filetypes=[("Java", "javaw.exe java.exe"), ("Все файлы", "*.*")],
+            title=i18n.tr("Выбери javaw.exe"),
+            filetypes=[("Java", "javaw.exe java.exe"), (i18n.tr("Все файлы"), "*.*")],
         )
         if chosen:
             entry = self.entries.get("java")
@@ -2243,6 +2516,8 @@ class Launcher(tk.Tk):
         self.cfg["ram_mb"] = self.ram_values[self.ram_index]
         java_entry = self.entries.get("java")
         self.cfg["java_path"] = (java_entry.get().strip() if java_entry else "")
+        jvm_entry = self.entries.get("jvm_args")
+        self.cfg["jvm_args"] = (jvm_entry.get().strip() if jvm_entry else "")
         data_entry = self.entries.get("data_dir")
         new_dir = data_entry.get().strip() if data_entry else ""
         if new_dir:
@@ -2409,6 +2684,10 @@ class Launcher(tk.Tk):
             self.canvas.itemconfigure(self.stage_id, text="Ошибка установки")
             self._push_log(f"Ошибка: {error}")
         elif self.installed_id:
+            try:
+                instances_core.ensure(self._data_dir(), self.installed_id)
+            except OSError:
+                pass
             self.canvas.itemconfigure(self.stage_id, text="Готово к запуску")
             if self._install_repair:
                 self._push_log("Файлы проверены — можно запускать.")
@@ -2470,9 +2749,10 @@ class Launcher(tk.Tk):
             self._push_log(f"{version_id}: нужна Java {needed} — кнопка «Скачать Java» в настройках.")
             return
         nickname = (self.cfg.get("nickname") or "Steve").strip()[:16] or "Steve"
+        data_dir = self._data_dir()
 
         # запущенная из библиотеки версия становится выбранной
-        row = next((entry for entry in loaders.installed_versions(self._data_dir())
+        row = next((entry for entry in loaders.installed_versions(data_dir)
                     if entry["id"] == version_id), None)
         if row is not None:
             self.game = row["game"]
@@ -2491,9 +2771,10 @@ class Launcher(tk.Tk):
         if server_address:
             self._push_log(f"Автоподключение к серверу {server_address}")
         self._set_stage("Запускаю игру")
-        data_dir = self._data_dir()
-        servers_core.sync_servers_dat(data_dir, self.cfg)
+        game_dir = instances_core.ensure(data_dir, version_id)
+        servers_core.sync_servers_dat(game_dir, self.cfg)
         ram = int(self.cfg.get("ram_mb", 2048))
+        jvm_args = str(self.cfg.get("jvm_args") or "")
 
         def watch(proc, started):
             code = proc.wait()
@@ -2501,7 +2782,7 @@ class Launcher(tk.Tk):
             self.running_id = None
             summary = ""
             if code not in (0, None):
-                report = launch_core.latest_crash_report(data_dir, started)
+                report = launch_core.latest_crash_report(game_dir, started)
                 summary = launch_core.crash_summary(report) if report else ""
             if summary:
                 self._push_log_threadsafe(f"Краш: {summary}")
@@ -2539,8 +2820,10 @@ class Launcher(tk.Tk):
                 self._post(self._refresh_launch_state)
                 return
             try:
-                process, log_path = launch_core.launch(data_dir, version_id, active_nick, ram,
-                                                       found[0], server, session)
+                process, log_path = launch_core.launch(
+                    data_dir, version_id, active_nick, ram,
+                    found[0], server, session, jvm_args, game_dir,
+                )
             except launch_core.LaunchError as exc:
                 self.launching_id = None
                 self._push_log_threadsafe(str(exc))
@@ -2557,7 +2840,7 @@ class Launcher(tk.Tk):
                 self._post(self._refresh_launch_state)
                 threading.Thread(target=watch, args=(process, started), daemon=True).start()
                 return
-            report = launch_core.latest_crash_report(data_dir, started)
+            report = launch_core.latest_crash_report(game_dir, started)
             summary = launch_core.crash_summary(report) if report else ""
             self.launching_id = None
             self.running_id = None
@@ -2687,7 +2970,7 @@ class Launcher(tk.Tk):
         try:
             messagebox.showerror(
                 "Vleyz Launcher",
-                f"{val}\n\nПодробности: {paths.logs_dir() / 'launcher.log'}",
+                i18n.tr(f"{val}\n\nПодробности: {paths.logs_dir() / 'launcher.log'}"),
             )
         except tk.TclError:
             pass
