@@ -158,6 +158,13 @@ class Launcher(tk.Tk):
         theme.apply(str(self.cfg.get("theme") or "dark"))
         i18n.set_language(str(self.cfg.get("language") or "ru"))
         profiles_core.ensure(self.cfg)
+        self.data_owned = False
+        try:
+            self.data_owned = paths.ensure_data_root(paths.data_dir(self.cfg))
+            if getattr(sys, "frozen", False):
+                paths.mark_install(paths.app_dir())
+        except OSError:
+            self.data_owned = False
         self.game = str(self.cfg.get("selected_version") or "")
         self.loader = str(self.cfg.get("selected_loader") or "vanilla")
         if self.loader not in loaders.LOADER_BY_ID:

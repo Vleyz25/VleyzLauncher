@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -15,6 +16,9 @@ from pathlib import Path
 APP_NAME = "Vleyz Launcher"
 EXE_NAME = "VleyzLauncher.exe"
 UNINSTALL_NAME = "Удалить Vleyz Launcher.cmd"
+INSTALL_MARKER = ".vleyz-install"
+DATA_MARKER = ".vleyzlauncher"
+DATA_FOLDER = "VleyzLauncher"
 CREATE_NO_WINDOW = 0x08000000
 
 DEFAULT_DIR = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "Programs" / "VleyzLauncher"
@@ -29,16 +33,42 @@ exit /b
 taskkill /f /im {exe} >nul 2>&1
 del "%USERPROFILE%\\Desktop\\{name}.lnk" >nul 2>&1
 del "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\{name}.lnk" >nul 2>&1
-rmdir /s /q "{folder}"
-del "%~f0" >nul 2>&1
+if not exist "{folder}\\{marker}" goto foreign
+del "{folder}\\{exe}" >nul 2>&1
+del "{folder}\\{marker}" >nul 2>&1
+del "{folder}\\{uninstaller}" >nul 2>&1
+rmdir "{folder}" 2>nul
+echo Лаунчер удалён. Чужие файлы в папке установки не тронуты.
+if not exist "%APPDATA%\\{datafolder}\\{datamarker}" goto end
+choice /c YN /n /m "Удалить также скачанные версии игры, миры и настройки? [Y/N] "
+if errorlevel 2 goto end
+rmdir /s /q "%APPDATA%\\{datafolder}\\minecraft" 2>nul
+rmdir /s /q "%APPDATA%\\{datafolder}\\java" 2>nul
+rmdir /s /q "%APPDATA%\\{datafolder}\\cache" 2>nul
+rmdir /s /q "%APPDATA%\\{datafolder}\\logs" 2>nul
+del "%APPDATA%\\{datafolder}\\config.json" >nul 2>&1
+del "%APPDATA%\\{datafolder}\\{datamarker}" >nul 2>&1
+rmdir "%APPDATA%\\{datafolder}" 2>nul
+echo Данные лаунчера удалены.
+goto end
+:foreign
+echo Папка "{folder}" не помечена как папка лаунчера.
+echo Удалены только ярлыки, файлы в папке не тронуты.
+:end
+(goto) 2>nul & del "%~f0" >nul 2>&1
 """
 
 
 def payload_path() -> Path:
     """Собранный лаунчер, вложенный в установщик."""
     base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
-    for candidate in (base / "payload" / EXE_NAME, base / EXE_NAME,
-                      base.parent / "dist" / EXE_NAME):
+    candidates = [
+        base / "payload" / EXE_NAME,
+        base / EXE_NAME,
+        base.parent / "dist" / EXE_NAME,
+        base.parent.parent / "dist" / EXE_NAME,
+    ]
+    for candidate in candidates:
         if candidate.is_file():
             return candidate
     raise FileNotFoundError("не найден VleyzLauncher.exe — пересоберите установщик")
@@ -73,10 +103,22 @@ def install(target_dir: Path, desktop: bool = True, start_menu: bool = True) -> 
         menu.mkdir(parents=True, exist_ok=True)
         make_shortcut(menu / f"{APP_NAME}.lnk", target)
 
+    (target_dir / INSTALL_MARKER).write_text(
+        json.dumps({"kind": "install", "app": DATA_FOLDER}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
     uninstall = target_dir / UNINSTALL_NAME
     uninstall.write_text(
         UNINSTALL_TEMPLATE.format(
-            temp=os.environ.get("TEMP", "."), exe=EXE_NAME, name=APP_NAME, folder=target_dir
+            temp=os.environ.get("TEMP", "."),
+            exe=EXE_NAME,
+            name=APP_NAME,
+            folder=target_dir,
+            marker=INSTALL_MARKER,
+            datamarker=DATA_MARKER,
+            datafolder=DATA_FOLDER,
+            uninstaller=UNINSTALL_NAME,
         ),
         encoding="utf-8",
     )

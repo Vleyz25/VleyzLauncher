@@ -480,6 +480,65 @@ class PackTests(unittest.TestCase):
             self.assertTrue(item["path"].is_file())
 
 
+class MarkerTests(unittest.TestCase):
+    def test_new_folder_is_marked_as_launcher_data(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "minecraft"
+            self.assertTrue(paths.ensure_data_root(target))
+            self.assertTrue((target / paths.DATA_MARKER).is_file())
+
+    def test_foreign_folder_is_not_marked(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "old-minecraft"
+            target.mkdir()
+            (target / "saves").mkdir()
+            (target / "saves" / "world.dat").write_bytes(b"x")
+            self.assertFalse(paths.ensure_data_root(target))
+            self.assertFalse((target / paths.DATA_MARKER).is_file())
+
+    def test_empty_folder_is_marked(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "empty"
+            target.mkdir()
+            self.assertTrue(paths.ensure_data_root(target))
+            self.assertTrue(paths.owned_by_launcher(target, paths.DATA_MARKER))
+
+    def test_install_marker_roundtrip(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "app"
+            paths.mark_install(target)
+            self.assertTrue(paths.owned_by_launcher(target))
+            self.assertFalse(paths.owned_by_launcher(Path(folder)))
+
+
+class InstallerSafetyTests(unittest.TestCase):
+    def _module(self):
+        import importlib.util
+
+        path = ROOT / "tools" / "installer" / "setup.py"
+        spec = importlib.util.spec_from_file_location("vleyz_setup_under_test", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_uninstaller_never_deletes_folder_recursively(self) -> None:
+        module = self._module()
+        template = module.UNINSTALL_TEMPLATE
+        self.assertNotIn('rmdir /s /q "{folder}"', template)
+        self.assertNotIn('rmdir /s /q "{folder}\\\\"', template)
+        self.assertIn("{marker}", template)
+        self.assertIn("{datamarker}", template)
+
+    def test_uninstaller_checks_marker_before_deleting(self) -> None:
+        module = self._module()
+        template = module.UNINSTALL_TEMPLATE
+        marker_line = next(
+            (line for line in template.splitlines() if "if not exist" in line and "{marker}" in line),
+            "",
+        )
+        self.assertIn("goto foreign", marker_line)
+
+
 class I18nTests(unittest.TestCase):
     def test_english_translation_and_patterns(self) -> None:
         previous = i18n.CURRENT

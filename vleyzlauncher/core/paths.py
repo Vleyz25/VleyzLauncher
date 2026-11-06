@@ -4,14 +4,17 @@ import json
 import logging
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from . import secure
-from .. import i18n
+from .. import APP_VERSION, i18n
 
 log = logging.getLogger(__name__)
 
 APP_FOLDER = "VleyzLauncher"
+INSTALL_MARKER = ".vleyz-install"
+DATA_MARKER = ".vleyzlauncher"
 DEFAULT_NICKNAME = "Steve"
 
 CONFIG_DEFAULTS = {
@@ -76,6 +79,68 @@ def config_path() -> Path:
 def legacy_config_path() -> Path:
     """Старое место конфига — рядом с exe. Нужно только для миграции."""
     return app_dir() / "config.json"
+
+
+def _write_marker(folder: Path, name: str, kind: str) -> None:
+    folder = Path(folder)
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "kind": kind,
+            "app": APP_FOLDER,
+            "version": APP_VERSION,
+            "created": datetime.now().isoformat(timespec="seconds"),
+        }
+        (folder / name).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except OSError as exc:
+        log.warning("маркер %s не записался в %s: %s", name, folder, exc)
+
+
+def mark_install(folder: Path) -> None:
+    """Помечает папку программы.
+
+    Деинсталлятор удаляет только папки с этим маркером: если лаунчер стоит
+    рядом с чужими файлами, они останутся на месте.
+    """
+    _write_marker(folder, INSTALL_MARKER, "install")
+
+
+def mark_data(folder: Path) -> None:
+    """Помечает папку игры, которой владеет лаунчер (versions, instances)."""
+    _write_marker(folder, DATA_MARKER, "data")
+
+
+def owned_by_launcher(folder: Path, marker: str = INSTALL_MARKER) -> bool:
+    try:
+        return (Path(folder) / marker).is_file()
+    except OSError:
+        return False
+
+
+def ensure_data_root(folder: Path) -> bool:
+    """Создаёт папку игры и ставит маркер. Возвращает True, если папка наша.
+
+    Маркер ставится только на пустую папку или на уже помеченную: чужой
+    каталог (старый .minecraft, папка с мирами) мы не объявляем своим, иначе
+    деинсталлятор однажды его удалит.
+    """
+    folder = Path(folder)
+    if not folder.exists():
+        folder.mkdir(parents=True, exist_ok=True)
+        mark_data(folder)
+        return True
+    if owned_by_launcher(folder, DATA_MARKER):
+        return True
+    try:
+        empty = not any(folder.iterdir())
+    except OSError:
+        return False
+    if empty:
+        mark_data(folder)
+        return True
+    return False
 
 
 def _map_secrets(cfg: dict, transform) -> dict:
