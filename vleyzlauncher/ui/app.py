@@ -2392,24 +2392,24 @@ class Launcher(tk.Tk):
                             command=self._save_settings, kind="primary", size=10)
         self.page_buttons.append(save)
         self.settings_hint = draw.text(cv, CX0 + 224, 607,
-                                       "Путь к Java можно оставить пустым — лаунчер найдёт её сам.",
-                                       8, theme.DIM, "normal", "w", "page")
+                                       "Java можно не указывать — найдётся сама.", 8,
+                                       theme.DIM, "normal", "w", "page")
 
-        draw.text(cv, CX0 + 512, 588, "Тема", 9, theme.MUTED, "normal", "w", "page")
-        theme_x = CX0 + 512
+        draw.text(cv, CX0 + 512, 594, "Тема", 9, theme.MUTED, "normal", "w", "page")
+        theme_x = CX0 + 572
         for key, title in theme.palettes():
             active = theme.CURRENT == key
-            button = CanvasButton(self, theme_x, 600, theme_x + 90, 636, title,
+            button = CanvasButton(self, theme_x, 576, theme_x + 83, 612, title,
                                   command=lambda k=key: self._set_theme(k),
                                   kind="primary" if active else "ghost", size=8)
             self.page_buttons.append(button)
-            theme_x += 97
+            theme_x += 90
 
-        draw.text(cv, CX0 + 558, 588, "Язык", 9, theme.MUTED, "normal", "w", "page")
-        language_x = CX0 + 558
+        draw.text(cv, CX0 + 512, 656, "Язык", 9, theme.MUTED, "normal", "w", "page")
+        language_x = CX0 + 572
         for key, title in i18n.LANGUAGES.items():
             active = i18n.CURRENT == key
-            button = CanvasButton(self, language_x, 600, language_x + 80, 636, title,
+            button = CanvasButton(self, language_x, 638, language_x + 80, 674, title,
                                   command=lambda k=key: self._set_language(k),
                                   kind="primary" if active else "ghost", size=8)
             self.page_buttons.append(button)
