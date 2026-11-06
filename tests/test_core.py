@@ -539,6 +539,63 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn("goto foreign", marker_line)
 
 
+class PortablePathsTests(unittest.TestCase):
+    def test_marker_moves_game_data_next_to_exe(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            app = Path(folder) / "VleyzLauncher"
+            app.mkdir()
+            profile = Path(folder) / "profile"
+            with mock.patch.object(paths, "app_dir", return_value=app), \
+                    mock.patch.dict(os.environ, {"APPDATA": str(profile)}):
+                self.assertFalse(paths.is_portable())
+                self.assertEqual(
+                    paths.default_data_dir(), profile / "VleyzLauncher" / "minecraft"
+                )
+                (app / paths.PORTABLE_MARKER).write_text("{}", encoding="utf-8")
+                self.assertTrue(paths.is_portable())
+                self.assertEqual(paths.default_data_dir(), app / "minecraft")
+                self.assertEqual(paths.java_root(), app / "java")
+                self.assertEqual(paths.logs_dir(), app / "logs")
+
+
+class InstallerLayoutTests(unittest.TestCase):
+    def _module(self):
+        import importlib.util
+
+        path = ROOT / "tools" / "installer" / "setup.py"
+        spec = importlib.util.spec_from_file_location("vleyz_setup_layout", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_creates_launcher_subfolder(self) -> None:
+        module = self._module()
+        self.assertEqual(
+            module.resolve_target_dir(Path("D:/Games")),
+            Path("D:/Games") / "VleyzLauncher",
+        )
+
+    def test_keeps_existing_launcher_folder(self) -> None:
+        module = self._module()
+        self.assertEqual(
+            module.resolve_target_dir(Path("D:/Games/VleyzLauncher")),
+            Path("D:/Games/VleyzLauncher"),
+        )
+
+    def test_keeps_marked_folder(self) -> None:
+        module = self._module()
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder)
+            (target / module.INSTALL_MARKER).write_text("{}", encoding="utf-8")
+            self.assertEqual(module.resolve_target_dir(target), target)
+
+    def test_uninstaller_checks_data_marker_inside_minecraft(self) -> None:
+        module = self._module()
+        template = module.UNINSTALL_TEMPLATE
+        self.assertIn('{folder}\\minecraft\\{datamarker}', template)
+        self.assertIn('{portable}', template)
+
+
 class I18nTests(unittest.TestCase):
     def test_english_translation_and_patterns(self) -> None:
         previous = i18n.CURRENT

@@ -15,13 +15,29 @@ from pathlib import Path
 
 APP_NAME = "Vleyz Launcher"
 EXE_NAME = "VleyzLauncher.exe"
+FOLDER_NAME = "VleyzLauncher"
 UNINSTALL_NAME = "Удалить Vleyz Launcher.cmd"
 INSTALL_MARKER = ".vleyz-install"
 DATA_MARKER = ".vleyzlauncher"
+PORTABLE_MARKER = ".vleyz-portable"
 DATA_FOLDER = "VleyzLauncher"
 CREATE_NO_WINDOW = 0x08000000
 
-DEFAULT_DIR = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "Programs" / "VleyzLauncher"
+DEFAULT_DIR = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "Programs"
+
+
+def resolve_target_dir(chosen: Path) -> Path:
+    """Папка лаунчера внутри выбранного места.
+
+    Если человек выбрал уже готовую папку лаунчера (обновление поверх) —
+    оставляем её как есть, иначе создаём подпапку VleyzLauncher.
+    """
+    chosen = Path(chosen)
+    if chosen.name.lower() == FOLDER_NAME.lower():
+        return chosen
+    if (chosen / INSTALL_MARKER).is_file():
+        return chosen
+    return chosen / FOLDER_NAME
 
 UNINSTALL_TEMPLATE = """@echo off
 chcp 65001 >nul
@@ -34,22 +50,25 @@ taskkill /f /im {exe} >nul 2>&1
 del "%USERPROFILE%\\Desktop\\{name}.lnk" >nul 2>&1
 del "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\{name}.lnk" >nul 2>&1
 if not exist "{folder}\\{marker}" goto foreign
-del "{folder}\\{exe}" >nul 2>&1
-del "{folder}\\{marker}" >nul 2>&1
-del "{folder}\\{uninstaller}" >nul 2>&1
-rmdir "{folder}" 2>nul
-echo Лаунчер удалён. Чужие файлы в папке установки не тронуты.
-if not exist "%APPDATA%\\{datafolder}\\{datamarker}" goto end
-choice /c YN /n /m "Удалить также скачанные версии игры, миры и настройки? [Y/N] "
-if errorlevel 2 goto end
-rmdir /s /q "%APPDATA%\\{datafolder}\\minecraft" 2>nul
+choice /c YN /n /m "Удалить также версии игры, миры и Java? [Y - удалить, N - оставить] "
+if errorlevel 2 goto files
+if exist "{folder}\\minecraft\\{datamarker}" rmdir /s /q "{folder}\\minecraft" 2>nul
+rmdir /s /q "{folder}\\java" 2>nul
+rmdir /s /q "{folder}\\logs" 2>nul
+if exist "%APPDATA%\\{datafolder}\\minecraft\\{datamarker}" rmdir /s /q "%APPDATA%\\{datafolder}\\minecraft" 2>nul
 rmdir /s /q "%APPDATA%\\{datafolder}\\java" 2>nul
-rmdir /s /q "%APPDATA%\\{datafolder}\\cache" 2>nul
 rmdir /s /q "%APPDATA%\\{datafolder}\\logs" 2>nul
+rmdir /s /q "%APPDATA%\\{datafolder}\\cache" 2>nul
 del "%APPDATA%\\{datafolder}\\config.json" >nul 2>&1
 del "%APPDATA%\\{datafolder}\\{datamarker}" >nul 2>&1
 rmdir "%APPDATA%\\{datafolder}" 2>nul
-echo Данные лаунчера удалены.
+:files
+del "{folder}\\{exe}" >nul 2>&1
+del "{folder}\\{marker}" >nul 2>&1
+del "{folder}\\{portable}" >nul 2>&1
+del "{folder}\\{uninstaller}" >nul 2>&1
+rmdir "{folder}" 2>nul
+echo Лаунчер удалён. Чужие файлы в папке не тронуты.
 goto end
 :foreign
 echo Папка "{folder}" не помечена как папка лаунчера.
@@ -91,7 +110,7 @@ def make_shortcut(link: Path, target: Path) -> bool:
 
 
 def install(target_dir: Path, desktop: bool = True, start_menu: bool = True) -> Path:
-    target_dir = Path(target_dir)
+    target_dir = resolve_target_dir(Path(target_dir))
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / EXE_NAME
     shutil.copy2(payload_path(), target)
@@ -107,6 +126,11 @@ def install(target_dir: Path, desktop: bool = True, start_menu: bool = True) -> 
         json.dumps({"kind": "install", "app": DATA_FOLDER}, ensure_ascii=False),
         encoding="utf-8",
     )
+    (target_dir / PORTABLE_MARKER).write_text(
+        json.dumps({"kind": "portable", "data": "minecraft", "java": "java"},
+                   ensure_ascii=False),
+        encoding="utf-8",
+    )
 
     uninstall = target_dir / UNINSTALL_NAME
     uninstall.write_text(
@@ -118,6 +142,7 @@ def install(target_dir: Path, desktop: bool = True, start_menu: bool = True) -> 
             marker=INSTALL_MARKER,
             datamarker=DATA_MARKER,
             datafolder=DATA_FOLDER,
+            portable=PORTABLE_MARKER,
             uninstaller=UNINSTALL_NAME,
         ),
         encoding="utf-8",
@@ -152,11 +177,12 @@ class SetupWindow:
         tk.Label(self.root, text=f"Установка {APP_NAME}", bg=self.BG, fg=self.TEXT,
                  font=("Segoe UI Semibold", 17), anchor="w").place(x=28, y=24)
         tk.Label(self.root,
-                 text="Лаунчер встанет в папку программ. Игру скачаете уже в нём — в пару кликов.",
+                 text="Выберите папку — внутри неё появится VleyzLauncher, и там же будут "
+                      "версии игры, Java и логи.",
                  bg=self.BG, fg=self.MUTED, font=("Segoe UI", 9), anchor="w").place(x=28, y=58)
 
-        tk.Label(self.root, text="Куда установить", bg=self.BG, fg=self.MUTED,
-                 font=("Segoe UI", 9), anchor="w").place(x=28, y=104)
+        tk.Label(self.root, text="Куда установить (папку VleyzLauncher создам внутри)", bg=self.BG,
+                 fg=self.MUTED, font=("Segoe UI", 9), anchor="w").place(x=28, y=104)
         self.dir_var = tk.StringVar(value=str(DEFAULT_DIR))
         entry = tk.Entry(self.root, textvariable=self.dir_var, bg=self.FIELD, fg=self.TEXT,
                          insertbackground=self.ACCENT, relief="flat", font=("Segoe UI", 9))
@@ -204,7 +230,7 @@ class SetupWindow:
             self.status.configure(text=f"Ошибка: {exc}", fg="#F87171")
             return
         self.installed = target
-        self.status.configure(text=f"Готово: {target}", fg="#7C8CFA")
+        self.status.configure(text=f"Готово: {target.parent}", fg="#7C8CFA")
         self.primary.configure(text="Запустить лаунчер", bg="#4ADE80", fg="#06220F",
                                activebackground="#22B364", command=self._launch)
         self.secondary.configure(text="Готово", command=self.root.destroy)

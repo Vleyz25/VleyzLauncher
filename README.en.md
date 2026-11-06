@@ -68,7 +68,7 @@ There is also `VleyzLauncher-portable.zip` — a single exe with no installation
 
 > Windows may warn about an "Unknown publisher": the project has no paid code-signing certificate yet. Sources are open and SHA256 sums are published in the release, so you can build it yourself.
 
-The launcher installs the game into `%APPDATA%\VleyzLauncher\minecraft` and downloaded JREs into `%APPDATA%\VleyzLauncher\java`. The game folder can be changed in settings; `.minecraft` is never touched.
+The installer puts everything into a `VleyzLauncher` subfolder of the location you pick: the launcher itself, every game version, Java and logs live there, nothing is scattered around. The game folder can be changed in settings; `.minecraft` is never touched.
 
 ### From source
 

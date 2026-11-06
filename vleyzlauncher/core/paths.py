@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 APP_FOLDER = "VleyzLauncher"
 INSTALL_MARKER = ".vleyz-install"
 DATA_MARKER = ".vleyzlauncher"
+PORTABLE_MARKER = ".vleyz-portable"
 DEFAULT_NICKNAME = "Steve"
 
 CONFIG_DEFAULTS = {
@@ -59,16 +60,30 @@ def state_dir() -> Path:
     return Path.home() / f".{APP_FOLDER.lower()}"
 
 
+def is_portable() -> bool:
+    """Лаунчер поставлен переносимо: игра и Java живут рядом с exe."""
+    try:
+        return (app_dir() / PORTABLE_MARKER).is_file()
+    except OSError:
+        return False
+
+
 def default_data_dir() -> Path:
+    if is_portable():
+        return app_dir() / "minecraft"
     return state_dir() / "minecraft"
 
 
 def java_root() -> Path:
     """Куда лаунчер ставит скачанные JRE."""
+    if is_portable():
+        return app_dir() / "java"
     return state_dir() / "java"
 
 
 def logs_dir() -> Path:
+    if is_portable():
+        return app_dir() / "logs"
     return state_dir() / "logs"
 
 
