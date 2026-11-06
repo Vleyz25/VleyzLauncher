@@ -34,6 +34,11 @@
 - Your own server list with ping: MOTD, online count, version, latency. The Play button connects straight to a server and the list shows up in the in-game Multiplayer screen.
 - Mods: shows `.jar` files from the `mods` folder and toggles them with one click.
 - Modrinth search built in: finds a mod, picks the loader and game version, installs it together with its dependencies.
+- Ready-made modpacks: `.mrpack` from Modrinth and zips with a `mods` folder — files are verified by SHA1 and overrides are unpacked into the instance.
+- Mod updates: compares installed `.jar` files with Modrinth by SHA1 and installs newer versions, one by one or all at once.
+- Resource packs and shaders from Modrinth: search, install, toggle with one click.
+- World backups: a zip of the `saves` folder, the last 5 are kept, restoring never loses the current worlds.
+- Skin preview by nickname and saving the image.
 - Instances: each build gets its own `mods`, `saves` and `config`, so modpacks do not collide.
 - JVM arguments field in settings, next to the memory slider.
 - Three themes: dark, grey, light.
@@ -130,7 +135,7 @@ tests/                      core unit tests
 
 - Official servers only accept a Microsoft account with a purchased copy of the game. With an offline nickname or Ely.by you can join servers running `online-mode=false`, Ely.by servers and LAN worlds.
 - NeoForge only from 1.20.2. For 1.20.1 use Forge or Fabric.
-- Resource packs are not downloaded by the launcher: it creates the folders, you drop the files in.
+- CurseForge packs are unpacked for overrides only: without an API key the launcher does not download their mod files.
 - The first Forge launch takes longer — Java and libraries are being downloaded.
 
 ## Plans

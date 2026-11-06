@@ -15,11 +15,14 @@ sys.path.insert(0, str(ROOT))
 
 from vleyzlauncher import APP_VERSION, i18n  # noqa: E402
 from vleyzlauncher.core import (  # noqa: E402
+    backups,
     instances,
     launch,
+    modpacks,
     modrinth,
     mods,
     net,
+    packs,
     paths,
     profiles,
     secure,
@@ -372,6 +375,109 @@ class ModrinthTests(unittest.TestCase):
             self.assertEqual(result["skipped"], ["dep.jar"])
             self.assertEqual(result["installed"], ["root.jar"])
             download.assert_called_once()
+
+
+class ModpackTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.data = self.root / "data"
+        self.data.mkdir()
+
+    def _zip_with_mods(self) -> Path:
+        import zipfile
+
+        archive = self.root / "pack.zip"
+        with zipfile.ZipFile(archive, "w") as handle:
+            handle.writestr("mods/example.jar", b"PK jar")
+            handle.writestr("config/example.toml", b"value = 1")
+        return archive
+
+    def test_inspect_and_install_plain_zip(self) -> None:
+        archive = self._zip_with_mods()
+        plan = modpacks.inspect(archive)
+        self.assertEqual(plan["kind"], "zip")
+        result = modpacks.install(self.data, "1.20.1-fabric", archive)
+        self.assertEqual(result["extracted"], 2)
+        target = instances.path(self.data, "1.20.1-fabric")
+        self.assertTrue((target / "mods" / "example.jar").is_file())
+        self.assertTrue((target / "config" / "example.toml").is_file())
+
+    def test_inspect_mrpack_metadata_and_env(self) -> None:
+        import zipfile
+
+        archive = self.root / "pack.mrpack"
+        index = {
+            "formatVersion": 1,
+            "name": "Test pack",
+            "versionId": "1.0",
+            "dependencies": {"minecraft": "1.20.1", "forge": "47.1.0"},
+            "files": [
+                {"path": "mods/a.jar", "hashes": {"sha1": "aa"}, "fileSize": 5,
+                 "downloads": ["https://example.invalid/a.jar"]},
+                {"path": "mods/b.jar", "downloads": ["https://example.invalid/b.jar"],
+                 "env": {"client": "unsupported"}},
+            ],
+        }
+        with zipfile.ZipFile(archive, "w") as handle:
+            handle.writestr("modrinth.index.json", json.dumps(index))
+            handle.writestr("overrides/config/pack.txt", b"x")
+        plan = modpacks.inspect(archive)
+        self.assertEqual(plan["kind"], "modrinth")
+        self.assertEqual(plan["game_version"], "1.20.1")
+        self.assertEqual(plan["loader"], "forge")
+        self.assertEqual([item["path"] for item in plan["files"]], ["mods/a.jar"])
+
+    def test_broken_archive_rejected(self) -> None:
+        broken = self.root / "broken.zip"
+        broken.write_bytes(b"not a zip at all")
+        with self.assertRaises(modpacks.ModpackError):
+            modpacks.inspect(broken)
+
+
+class BackupTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.data = Path(self.temp.name) / "data"
+        self.world = instances.saves_dir(self.data, "1.20.1")
+        self.world.mkdir(parents=True)
+        (self.world / "world").mkdir()
+        (self.world / "world" / "level.dat").write_bytes(b"level")
+
+    def test_create_restore_and_rotate(self) -> None:
+        first = backups.create(self.data, "1.20.1", keep=2)
+        self.assertIsNotNone(first)
+        for index in range(3):
+            import time
+
+            time.sleep(1.05)
+            backups.create(self.data, "1.20.1", label=f"n{index}", keep=2)
+        self.assertEqual(len(backups.list_backups(self.data, "1.20.1")), 2)
+
+        (self.world / "world" / "level.dat").write_bytes(b"broken")
+        backups.restore(self.data, "1.20.1", backups.list_backups(self.data, "1.20.1")[0]["name"])
+        self.assertIn((self.world / "world" / "level.dat").read_bytes(), (b"level", b"broken"))
+
+    def test_empty_saves_returns_none(self) -> None:
+        empty = Path(self.temp.name) / "empty"
+        instances.saves_dir(empty, "1.20.1").mkdir(parents=True)
+        self.assertIsNone(backups.create(empty, "1.20.1"))
+
+
+class PackTests(unittest.TestCase):
+    def test_toggle_moves_between_folders(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            data = Path(folder)
+            target = packs.folder(data, "1.20.1", "resourcepack")
+            target.mkdir(parents=True)
+            (target / "pack.zip").write_bytes(b"PK")
+            self.assertTrue(packs.installed(data, "1.20.1", "resourcepack")[0]["enabled"])
+            self.assertTrue(packs.set_enabled(data, "1.20.1", "resourcepack", "pack.zip", False))
+            item = packs.installed(data, "1.20.1", "resourcepack")[0]
+            self.assertFalse(item["enabled"])
+            self.assertTrue(item["path"].is_file())
 
 
 class I18nTests(unittest.TestCase):

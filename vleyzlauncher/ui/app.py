@@ -18,13 +18,18 @@ from ..core import java as java_core
 from ..core import launch as launch_core
 from ..core import loaders
 from ..core import elyby as elyby_core
+from ..core import backups as backups_core
 from ..core import instances as instances_core
 from ..core import microsoft as microsoft_core
+from ..core import modpacks as modpacks_core
 from ..core import mods as mods_core
 from ..core import modrinth as modrinth_core
+from ..core import modupdates as modupdates_core
+from ..core import packs as packs_core
 from ..core import paths
 from ..core import profiles as profiles_core
 from ..core import servers as servers_core
+from ..core import skins as skins_core
 from ..core import updates as updates_core
 from ..core import versions as version_core
 from ..core.installer import InstallError, Installer, Progress, uninstall
@@ -216,6 +221,21 @@ class Launcher(tk.Tk):
             "status": "",
             "installing": "",
         }
+        self._packs = {
+            "kind": "resourcepack",
+            "query": "",
+            "results": [],
+            "page": 0,
+            "busy": False,
+            "error": "",
+            "status": "",
+            "installing": "",
+        }
+        self._mu = {"busy": False, "checked": False, "updates": [], "error": "",
+                    "status": "", "applying": "", "stats": {}}
+        self._bk = {"busy": False, "items": [], "page": 0, "error": "",
+                    "status": "", "restoring": ""}
+        self._skin = {"nick": "", "busy": False, "error": "", "path": None, "image": None}
 
         self.withdraw()
         self.overrideredirect(True)
@@ -1104,7 +1124,8 @@ class Launcher(tk.Tk):
             button.destroy()
         self.modal_buttons = []
         for name in ("modal_name", "modal_nick", "modal_srv_name", "modal_srv_addr",
-                     "ely_login", "ely_password", "ely_totp", "mr_query"):
+                     "ely_login", "ely_password", "ely_totp", "mr_query", "pk_query",
+                     "skin_nick"):
             entry = self.entries.get(name)
             if entry is not None:
                 entry.place_forget()
@@ -1145,6 +1166,14 @@ class Launcher(tk.Tk):
             self._draw_account(px0, px1, py0, py1)
         elif self.modal == "modrinth":
             self._draw_modrinth(px0, px1, py0, py1)
+        elif self.modal == "packs":
+            self._draw_packs(px0, px1, py0, py1)
+        elif self.modal == "updates":
+            self._draw_updates(px0, px1, py0, py1)
+        elif self.modal == "backups":
+            self._draw_backups(px0, px1, py0, py1)
+        elif self.modal == "skin":
+            self._draw_skin(px0, px1, py0, py1)
         else:
             self._draw_profile_form(px0, px1, py0, py1)
 
@@ -1920,17 +1949,25 @@ class Launcher(tk.Tk):
         hint = mods_core.folder_hint(data_dir, instance_id) if instance_id else "—"
         draw.text(cv, CX0 + 18, 147, hint[:80], 8, theme.MUTED,
                   "normal", "w", "page")
-        modrinth = CanvasButton(self, CX1 - 486, 122, CX1 - 342, 152, "Modrinth",
-                               command=self._open_modrinth_modal, kind="primary", size=9,
-                               enabled=bool(instance_id and instance_loader != "vanilla"))
-        add = CanvasButton(self, CX1 - 330, 122, CX1 - 186, 152, "Добавить",
-                           command=self._add_mods, kind="ghost", size=9,
-                           enabled=bool(instance_id))
-        refresh = CanvasButton(self, CX1 - 174, 122, CX1 - 14, 152, "Обновить",
-                               command=lambda: self._show_page("mods"), kind="ghost", size=9)
-        self.page_buttons.extend([modrinth, add, refresh])
 
-        y = 174
+        tools = [
+            ("Modrinth", self._open_modrinth_modal, "primary",
+             bool(instance_id and instance_loader != "vanilla")),
+            ("Сборка", self._import_modpack, "ghost", bool(instance_id)),
+            ("Обновления", self._open_updates_modal, "ghost",
+             bool(instance_id and instance_loader != "vanilla")),
+            ("Паки", self._open_packs_modal, "ghost", bool(instance_id)),
+            ("Бэкапы", self._open_backups_modal, "ghost", bool(instance_id)),
+            ("Добавить", self._add_mods, "ghost", bool(instance_id)),
+        ]
+        tool_x = CX0
+        for title, command, kind, enabled in tools:
+            button = CanvasButton(self, tool_x, 166, tool_x + 136, 198, title,
+                                  command=command, kind=kind, size=8, enabled=enabled)
+            self.page_buttons.append(button)
+            tool_x += 144
+
+        y = 212
         if not instance_id:
             draw.rr(cv, CX0, y, CX1, y + 112, 16, fill=theme.CARD, outline=theme.BORDER, tags="page")
             draw.text(cv, CX0 + 28, y + 36, "Сначала установите версию с загрузчиком.",
@@ -2059,7 +2096,7 @@ class Launcher(tk.Tk):
         draw.rr(cv, px0 + 28, field_y, px1 - 150, field_y + 38, 10, fill=theme.FIELD,
                 outline=theme.BORDER, tags="modal")
         self.entries.get("mr_query") or self._entry("mr_query", str(self._mr.get("query") or ""))
-        self._place_entry("mr_query", px0 + 28, field_y, px1 - 178, 38)
+        self._place_entry("mr_query", px0 + 28, field_y, px1 - px0 - 178, 38)
         entry = self.entries["mr_query"]
         entry.bind("<Return>", lambda _e: self._modrinth_search())
         search = CanvasButton(self, px1 - 138, field_y, px1 - 28, field_y + 38, "Искать",
@@ -2196,6 +2233,617 @@ class Launcher(tk.Tk):
             self._draw_modal()
         elif self.page == "mods":
             self._show_page("mods")
+
+    # ------------------------------------------------------------ модпаки
+
+    def _import_modpack(self) -> None:
+        if not self.installed_id:
+            self._push_log("Сначала установите версию с загрузчиком.")
+            return
+        path = filedialog.askopenfilename(
+            title="Выберите сборку",
+            filetypes=[("Сборка Minecraft", "*.mrpack *.zip"), ("Все файлы", "*.*")],
+        )
+        if not path:
+            return
+        data_dir = self._data_dir()
+        instance_id = self.installed_id
+        game, _loader = self._instance_meta()
+        archive = Path(path)
+        self._push_log(f"Сборка: {archive.name}")
+
+        def work() -> None:
+            try:
+                plan = modpacks_core.inspect(archive)
+                if plan["game_version"] and game and plan["game_version"] != game:
+                    self._push_log_threadsafe(
+                        f"Сборка для {plan['game_version']}, у вас {game} — проверьте совместимость"
+                    )
+                for warning in plan["warnings"]:
+                    self._push_log_threadsafe(warning)
+                result = modpacks_core.install(
+                    data_dir, instance_id, archive, log_fn=self._push_log_threadsafe
+                )
+                self._push_log_threadsafe(
+                    f"Сборка «{result['name']}»: файлов "
+                    f"{result['installed'] + result['skipped']}, распаковано {result['extracted']}"
+                )
+            except modpacks_core.ModpackError as exc:
+                self._push_log_threadsafe(f"Сборка не установилась: {exc}")
+            except Exception as exc:  # noqa: BLE001 - показываем пользователю
+                self._push_log_threadsafe(f"Сборка не установилась: {exc}")
+            self._post(lambda: self._show_page("mods"))
+
+        threading.Thread(target=work, daemon=True, name="modpack-install").start()
+
+    # --------------------------------------------------------- обновления модов
+
+    def _open_updates_modal(self) -> None:
+        if not self.installed_id:
+            self._push_log("Сначала установите версию с загрузчиком.")
+            return
+        _game, loader = self._instance_meta()
+        if loader not in ("fabric", "forge", "neoforge"):
+            self._push_log("Обновления доступны для Fabric, Forge или NeoForge")
+            return
+        self.modal = "updates"
+        self._hide_entries()
+        self._mu.update(checked=False, updates=[], error="", status="", applying="", stats={})
+        self._draw_modal()
+        self._mods_check_updates()
+
+    def _mods_check_updates(self) -> None:
+        if self._mu["busy"] or not self.installed_id:
+            return
+        self._mu.update(busy=True, error="", status="Проверяю…", checked=False)
+        self._draw_modal()
+        data_dir = self._data_dir()
+        instance_id = self.installed_id
+        game, loader = self._instance_meta()
+
+        def work() -> None:
+            try:
+                result = modupdates_core.check(data_dir, instance_id, game, loader)
+                updates = result["updates"]
+                error = ""
+                status = (f"Обновлений: {len(updates)} · проверено {result['checked']} · "
+                          f"не с Modrinth: {result['unknown']}")
+            except Exception as exc:  # noqa: BLE001 - показываем пользователю
+                updates, error, status = [], str(exc), ""
+            self._mu.update(busy=False, checked=True, updates=updates, error=error,
+                            status=status)
+            self._post(self._mods_redraw)
+
+        threading.Thread(target=work, daemon=True, name="mods-updates").start()
+
+    def _mods_apply(self, entry: dict | None) -> None:
+        if self._mu["busy"] or not self.installed_id:
+            return
+        data_dir = self._data_dir()
+        instance_id = self.installed_id
+        items = [entry] if entry else list(self._mu["updates"])
+        name = str((entry or {}).get("title") or "") if entry else ""
+        self._mu.update(busy=True, applying=name, error="", status="Обновляю…")
+        self._draw_modal()
+
+        def work() -> None:
+            done = 0
+            failures = []
+            for item in items:
+                try:
+                    modupdates_core.apply(data_dir, instance_id, item,
+                                          log_fn=self._push_log_threadsafe)
+                    done += 1
+                except Exception as exc:  # noqa: BLE001 - показываем пользователю
+                    failures.append(f"{item.get('title') or item.get('filename')}: {exc}")
+            self._mu.update(
+                busy=False,
+                applying="",
+                updates=[],
+                status=f"Обновлено: {done}",
+                error=failures[0] if failures else "",
+                checked=bool(failures),
+            )
+            self._post(self._mods_redraw)
+
+        threading.Thread(target=work, daemon=True, name="mods-apply").start()
+
+    def _mods_redraw(self) -> None:
+        if self.modal == "updates":
+            self._draw_modal()
+            return
+        if self.page == "mods":
+            self._show_page("mods")
+
+    def _draw_updates(self, px0, px1, py0, py1) -> None:
+        cv = self.canvas
+        game, loader = self._instance_meta()
+        draw.text(cv, px0 + 28, py0 + 34, "Обновления модов", 14, theme.TEXT, "bold", "w", "modal")
+        draw.text(cv, px0 + 28, py0 + 56, f"{game} · {loader} · {self.installed_id or ''}",
+                  8, theme.MUTED, "normal", "w", "modal")
+        close = CanvasButton(self, px1 - 62, py0 + 20, px1 - 24, py0 + 52, "×",
+                             command=self._close_modal, kind="ghost", size=12)
+        self.modal_buttons.append(close)
+
+        y = py0 + 84
+        if self._mu["error"]:
+            draw.text(cv, px0 + 28, y, str(self._mu["error"])[:88], 8, theme.DANGER,
+                      "normal", "w", "modal")
+        elif self._mu["status"]:
+            draw.text(cv, px0 + 28, y, str(self._mu["status"])[:88], 8, theme.ACCENT,
+                      "normal", "w", "modal")
+        else:
+            draw.text(cv, px0 + 28, y, "Сверяю установленные моды с Modrinth.",
+                      8, theme.DIM, "normal", "w", "modal")
+
+        rows = (self._mu.get("updates") or [])[:3]
+        y += 30
+        if self._mu["checked"] and not rows and not self._mu["busy"]:
+            draw.rr(cv, px0 + 28, y, px1 - 28, y + 64, 12, fill=theme.CARD,
+                    outline=theme.BORDER, tags="modal")
+            draw.text(cv, px0 + 46, y + 26, "Обновлять нечего — все моды свежие.",
+                      9, theme.MUTED, "normal", "w", "modal")
+        for item in rows:
+            draw.rr(cv, px0 + 24, y, px1 - 24, y + 72, 12, fill=theme.CARD,
+                    outline=theme.BORDER, tags="modal")
+            draw.text(cv, px0 + 40, y + 20, str(item.get("title") or item.get("filename"))[:44],
+                      10, theme.TEXT, "bold", "w", "modal")
+            draw.text(cv, px0 + 40, y + 40,
+                      f"{item.get('current_version') or '?'} → {item.get('latest_version') or '?'}",
+                      8, theme.MUTED, "normal", "w", "modal")
+            draw.text(cv, px0 + 40, y + 56, str(item.get("filename"))[:52], 7, theme.DIM,
+                      "normal", "w", "modal")
+            button = CanvasButton(
+                self, px1 - 138, y + 18, px1 - 42, y + 54, "Обновить",
+                command=lambda it=item: self._mods_apply(it), kind="ghost", size=8,
+                enabled=not self._mu["busy"],
+            )
+            self.modal_buttons.append(button)
+            y += 78
+
+        if len(self._mu.get("updates") or []) > 3:
+            draw.text(cv, px0 + 28, py1 - 54,
+                      f"И ещё {len(self._mu['updates']) - 3} — обновятся кнопкой ниже",
+                      7, theme.DIM, "normal", "w", "modal")
+
+        check = CanvasButton(self, px0 + 24, py1 - 56, px0 + 184, py1 - 20, "Проверить",
+                             command=self._mods_check_updates, kind="ghost", size=9,
+                             enabled=not self._mu["busy"])
+        apply_all = CanvasButton(self, px1 - 214, py1 - 56, px1 - 24, py1 - 20,
+                                 "Обновить всё", command=lambda: self._mods_apply(None),
+                                 kind="primary", size=9,
+                                 enabled=bool(self._mu["updates"]) and not self._mu["busy"])
+        self.modal_buttons.extend([check, apply_all])
+
+    # ------------------------------------------------------- ресурспаки и шейдеры
+
+    def _open_packs_modal(self) -> None:
+        if not self.installed_id:
+            self._push_log("Сначала установите версию с загрузчиком.")
+            return
+        self.modal = "packs"
+        self._hide_entries()
+        self._packs.update(results=[], page=0, busy=False, error="", status="", installing="")
+        self._draw_modal()
+        self._packs_search()
+
+    def _draw_packs(self, px0, px1, py0, py1) -> None:
+        cv = self.canvas
+        game, _loader = self._instance_meta()
+        draw.text(cv, px0 + 28, py0 + 34, "Ресурспаки и шейдеры", 14, theme.TEXT, "bold",
+                  "w", "modal")
+        draw.text(cv, px0 + 28, py0 + 56, f"{game} · {self.installed_id or ''}", 8,
+                  theme.MUTED, "normal", "w", "modal")
+        close = CanvasButton(self, px1 - 62, py0 + 20, px1 - 24, py0 + 52, "×",
+                             command=self._close_modal, kind="ghost", size=12)
+        self.modal_buttons.append(close)
+
+        tab_y = py0 + 74
+        for index, (key, title) in enumerate((("resourcepack", "Ресурспаки"),
+                                              ("shader", "Шейдеры"))):
+            active = self._packs["kind"] == key
+            left = px0 + 28 + index * 132
+            button = CanvasButton(self, left, tab_y, left + 124, tab_y + 30, title,
+                                  command=lambda k=key: self._packs_kind(k),
+                                  kind="primary" if active else "ghost", size=8)
+            self.modal_buttons.append(button)
+
+        field_y = tab_y + 42
+        draw.rr(cv, px0 + 28, field_y, px1 - 150, field_y + 36, 10, fill=theme.FIELD,
+                outline=theme.BORDER, tags="modal")
+        self.entries.get("pk_query") or self._entry("pk_query", str(self._packs.get("query") or ""))
+        self._place_entry("pk_query", px0 + 28, field_y, px1 - px0 - 178, 36)
+        entry = self.entries["pk_query"]
+        entry.bind("<Return>", lambda _e: self._packs_search())
+        search = CanvasButton(self, px1 - 138, field_y, px1 - 28, field_y + 36, "Искать",
+                              command=self._packs_search, kind="primary", size=9,
+                              enabled=not self._packs["busy"])
+        self.modal_buttons.append(search)
+
+        status_y = field_y + 52
+        if self._packs["error"]:
+            draw.text(cv, px0 + 28, status_y, str(self._packs["error"])[:88], 8,
+                      theme.DANGER, "normal", "w", "modal")
+        elif self._packs["status"]:
+            draw.text(cv, px0 + 28, status_y, str(self._packs["status"])[:88], 8,
+                      theme.ACCENT, "normal", "w", "modal")
+        elif self._packs["busy"]:
+            draw.text(cv, px0 + 28, status_y, "Ищу…", 8, theme.MUTED, "normal", "w", "modal")
+        else:
+            draw.text(cv, px0 + 28, status_y, "Введите запрос и нажмите «Искать».",
+                      8, theme.DIM, "normal", "w", "modal")
+
+        results = self._packs.get("results") or []
+        per_page = 3
+        pages = max(1, (len(results) + per_page - 1) // per_page)
+        self._packs["page"] = min(int(self._packs.get("page") or 0), pages - 1)
+        chunk = results[self._packs["page"] * per_page:(self._packs["page"] + 1) * per_page]
+        y = field_y + 76
+        for item in chunk:
+            draw.rr(cv, px0 + 24, y, px1 - 24, y + 66, 12, fill=theme.CARD,
+                    outline=theme.BORDER, tags="modal")
+            draw.text(cv, px0 + 40, y + 20, str(item.get("title") or "Pack")[:46], 10,
+                      theme.TEXT, "bold", "w", "modal")
+            draw.text(cv, px0 + 40, y + 38, str(item.get("description") or "")[:74], 8,
+                      theme.MUTED, "normal", "w", "modal")
+            installing = self._packs.get("installing") == item.get("id")
+            button = CanvasButton(
+                self, px1 - 138, y + 16, px1 - 40, y + 52,
+                "Ставлю…" if installing else "Установить",
+                command=lambda it=item: self._packs_install(it),
+                kind="ghost" if installing else "primary", size=8,
+                enabled=not self._packs["busy"],
+            )
+            self.modal_buttons.append(button)
+            y += 72
+
+        if not chunk and not self._packs["busy"] and self._packs["status"]:
+            draw.rr(cv, px0 + 24, y, px1 - 24, y + 56, 12, fill=theme.CARD,
+                    outline=theme.BORDER, tags="modal")
+            draw.text(cv, px0 + 40, y + 26, "Ничего не найдено.", 9, theme.MUTED,
+                      "normal", "w", "modal")
+
+        if pages > 1:
+            draw.text(cv, (px0 + px1) / 2, py1 - 28, f"стр. {self._packs['page'] + 1} / {pages}",
+                      8, theme.MUTED, "normal", "center", "modal")
+            prev = CanvasButton(self, px1 - 214, py1 - 42, px1 - 168, py1 - 14, "←",
+                                command=lambda: self._packs_go(-1), kind="ghost", size=9,
+                                enabled=self._packs["page"] > 0 and not self._packs["busy"])
+            nxt = CanvasButton(self, px1 - 160, py1 - 42, px1 - 114, py1 - 14, "→",
+                               command=lambda: self._packs_go(1), kind="ghost", size=9,
+                               enabled=self._packs["page"] < pages - 1 and not self._packs["busy"])
+            self.modal_buttons.extend([prev, nxt])
+
+    def _packs_kind(self, kind: str) -> None:
+        if self._packs["kind"] == kind:
+            return
+        self._packs.update(kind=kind, results=[], page=0, status="", error="")
+        self._draw_modal()
+        self._packs_search()
+
+    def _packs_go(self, delta: int) -> None:
+        self._packs["page"] = max(0, int(self._packs.get("page") or 0) + delta)
+        self._draw_modal()
+
+    def _packs_search(self) -> None:
+        if self._packs["busy"] or not self.installed_id:
+            return
+        entry = self.entries.get("pk_query")
+        query = entry.get().strip() if entry is not None else str(self._packs.get("query") or "")
+        self._packs.update(query=query, busy=True, error="", status="Ищу…", page=0)
+        self._draw_modal()
+        game, _loader = self._instance_meta()
+        kind = self._packs["kind"]
+
+        def work() -> None:
+            try:
+                results = modrinth_core.search_type(query, game, kind)
+                error = ""
+            except Exception as exc:  # noqa: BLE001 - показываем пользователю
+                results, error = [], str(exc)
+            self._packs.update(results=results, busy=False, error=error,
+                               status=f"Найдено: {len(results)}" if not error else "")
+            self._post(lambda: self._draw_modal() if self.modal == "packs" else None)
+
+        threading.Thread(target=work, daemon=True, name="packs-search").start()
+
+    def _packs_install(self, item: dict) -> None:
+        if self._packs["busy"] or not self.installed_id:
+            return
+        project_id = str(item.get("id") or "")
+        if not project_id:
+            return
+        self._packs.update(busy=True, installing=project_id, error="", status="Устанавливаю…")
+        self._draw_modal()
+        data_dir = self._data_dir()
+        instance_id = self.installed_id
+        game, _loader = self._instance_meta()
+        kind = self._packs["kind"]
+
+        def work() -> None:
+            try:
+                packs_core.install(data_dir, instance_id, kind, project_id, game,
+                                   log_fn=self._push_log_threadsafe)
+                status, error = "Установлено", ""
+            except Exception as exc:  # noqa: BLE001 - показываем пользователю
+                status, error = "", str(exc)
+            self._packs.update(busy=False, installing="", status=status, error=error)
+            self._post(lambda: self._draw_modal() if self.modal == "packs" else None)
+
+        threading.Thread(target=work, daemon=True, name="pack-install").start()
+
+    # ------------------------------------------------------------------ бэкапы
+
+    def _open_backups_modal(self) -> None:
+        if not self.installed_id:
+            self._push_log("Сначала установите версию с загрузчиком.")
+            return
+        self.modal = "backups"
+        self._hide_entries()
+        self._bk.update(busy=False, error="", status="", restoring="", page=0)
+        self._bk_load()
+        self._draw_modal()
+
+    def _bk_load(self) -> None:
+        self._bk["items"] = backups_core.list_backups(self._data_dir(), self.installed_id)
+
+    def _draw_backups(self, px0, px1, py0, py1) -> None:
+        cv = self.canvas
+        draw.text(cv, px0 + 28, py0 + 34, "Бэкапы миров", 14, theme.TEXT, "bold", "w", "modal")
+        draw.text(cv, px0 + 28, py0 + 56,
+                  f"{self.installed_id or ''} · {len(self._bk['items'])} архивов",
+                  8, theme.MUTED, "normal", "w", "modal")
+        close = CanvasButton(self, px1 - 62, py0 + 20, px1 - 24, py0 + 52, "×",
+                             command=self._close_modal, kind="ghost", size=12)
+        self.modal_buttons.append(close)
+
+        make = CanvasButton(self, px0 + 24, py0 + 76, px0 + 204, py0 + 112,
+                            "Создать бэкап", command=self._bk_create, kind="primary",
+                            size=9, enabled=not self._bk["busy"])
+        self.modal_buttons.append(make)
+
+        status_y = py0 + 128
+        if self._bk["error"]:
+            draw.text(cv, px0 + 28, status_y, str(self._bk["error"])[:88], 8, theme.DANGER,
+                      "normal", "w", "modal")
+        elif self._bk["status"]:
+            draw.text(cv, px0 + 28, status_y, str(self._bk["status"])[:88], 8, theme.ACCENT,
+                      "normal", "w", "modal")
+        else:
+            draw.text(cv, px0 + 28, status_y,
+                      "Бэкап — zip папки saves. Хранятся 5 последних.", 8, theme.DIM,
+                      "normal", "w", "modal")
+
+        items = self._bk["items"]
+        per_page = 3
+        pages = max(1, (len(items) + per_page - 1) // per_page)
+        self._bk["page"] = min(int(self._bk.get("page") or 0), pages - 1)
+        chunk = items[self._bk["page"] * per_page:(self._bk["page"] + 1) * per_page]
+        y = py0 + 150
+        if not items:
+            draw.rr(cv, px0 + 24, y, px1 - 24, y + 56, 12, fill=theme.CARD,
+                    outline=theme.BORDER, tags="modal")
+            draw.text(cv, px0 + 40, y + 26, "Архивов пока нет.", 9, theme.MUTED,
+                      "normal", "w", "modal")
+        for item in chunk:
+            draw.rr(cv, px0 + 24, y, px1 - 24, y + 66, 12, fill=theme.CARD,
+                    outline=theme.BORDER, tags="modal")
+            draw.text(cv, px0 + 40, y + 20, str(item.get("name"))[:40], 9, theme.TEXT,
+                      "bold", "w", "modal")
+            draw.text(cv, px0 + 40, y + 40,
+                      f"{item.get('created')} · {paths.human_size(item.get('size') or 0)}", 8,
+                      theme.MUTED, "normal", "w", "modal")
+            restore = CanvasButton(
+                self, px1 - 232, y + 16, px1 - 128, y + 50, "Восстановить",
+                command=lambda n=item.get("name"): self._bk_restore(n), kind="ghost",
+                size=8, enabled=not self._bk["busy"],
+            )
+            remove = CanvasButton(
+                self, px1 - 118, y + 16, px1 - 34, y + 50, "Удалить",
+                command=lambda n=item.get("name"): self._bk_delete(n), kind="ghost",
+                size=8, enabled=not self._bk["busy"],
+            )
+            self.modal_buttons.extend([restore, remove])
+            y += 72
+
+        if pages > 1:
+            draw.text(cv, (px0 + px1) / 2, py1 - 28, f"стр. {self._bk['page'] + 1} / {pages}",
+                      8, theme.MUTED, "normal", "center", "modal")
+            prev = CanvasButton(self, px1 - 214, py1 - 42, px1 - 168, py1 - 14, "←",
+                                command=lambda: self._bk_go(-1), kind="ghost", size=9,
+                                enabled=self._bk["page"] > 0)
+            nxt = CanvasButton(self, px1 - 160, py1 - 42, px1 - 114, py1 - 14, "→",
+                               command=lambda: self._bk_go(1), kind="ghost", size=9,
+                               enabled=self._bk["page"] < pages - 1)
+            self.modal_buttons.extend([prev, nxt])
+
+    def _bk_go(self, delta: int) -> None:
+        self._bk["page"] = max(0, int(self._bk.get("page") or 0) + delta)
+        self._draw_modal()
+
+    def _bk_create(self) -> None:
+        if self._bk["busy"] or not self.installed_id:
+            return
+        self._bk.update(busy=True, error="", status="Создаю бэкап…")
+        self._draw_modal()
+        data_dir = self._data_dir()
+        instance_id = self.installed_id
+
+        def work() -> None:
+            try:
+                result = backups_core.create(data_dir, instance_id,
+                                             log_fn=self._push_log_threadsafe)
+                if result:
+                    status, error = f"Готово: {result['name']}", ""
+                else:
+                    status, error = "", "Миров нет — сохранять нечего"
+            except Exception as exc:  # noqa: BLE001 - показываем пользователю
+                status, error = "", str(exc)
+            self._bk.update(busy=False, status=status, error=error)
+            self._post(lambda: self._bk_finish())
+
+        threading.Thread(target=work, daemon=True, name="backup-create").start()
+
+    def _bk_finish(self) -> None:
+        self._bk_load()
+        if self.modal == "backups":
+            self._draw_modal()
+
+    def _bk_restore(self, name) -> None:
+        if self._bk["busy"] or not name:
+            return
+        if not messagebox.askyesno(
+            i18n.tr("Бэкап"),
+            i18n.tr(f"Восстановить {name}?\n\nТекущие миры сохранятся рядом "
+                    "в папке saves-before-…"),
+        ):
+            return
+        data_dir = self._data_dir()
+        instance_id = self.installed_id
+        self._bk.update(busy=True, error="", status="Восстанавливаю…")
+        self._draw_modal()
+
+        def work() -> None:
+            try:
+                backups_core.restore(data_dir, instance_id, name)
+                status, error = "Миры восстановлены", ""
+            except Exception as exc:  # noqa: BLE001 - показываем пользователю
+                status, error = "", str(exc)
+            self._bk.update(busy=False, status=status, error=error)
+            self._post(self._bk_finish)
+
+        threading.Thread(target=work, daemon=True, name="backup-restore").start()
+
+    def _bk_delete(self, name) -> None:
+        if self._bk["busy"] or not name:
+            return
+        if not messagebox.askyesno(i18n.tr("Бэкап"), i18n.tr(f"Удалить {name}?")):
+            return
+        if backups_core.delete(self._data_dir(), self.installed_id, name):
+            self._bk.update(status="Бэкап удалён", error="")
+        else:
+            self._bk.update(error="Не удалось удалить бэкап", status="")
+        self._bk_load()
+        self._draw_modal()
+
+    # -------------------------------------------------------------------- скин
+
+    def _open_skin_modal(self) -> None:
+        self.modal = "skin"
+        self._hide_entries()
+        nick = ""
+        profile = profiles_core.active(self.cfg)
+        if isinstance(profile, dict):
+            nick = str(profile.get("nickname") or "")
+        nick = nick or str(self.cfg.get("nickname") or "")
+        self._skin = {"nick": nick, "busy": False, "error": "", "path": None, "image": None}
+        self._draw_modal()
+        if nick:
+            self._skin_load(nick)
+
+    def _draw_skin(self, px0, px1, py0, py1) -> None:
+        cv = self.canvas
+        draw.text(cv, px0 + 28, py0 + 34, "Скин", 14, theme.TEXT, "bold", "w", "modal")
+        draw.text(cv, px0 + 28, py0 + 56, "Превью по нику и сохранение картинки",
+                  8, theme.MUTED, "normal", "w", "modal")
+        close = CanvasButton(self, px1 - 62, py0 + 20, px1 - 24, py0 + 52, "×",
+                             command=self._close_modal, kind="ghost", size=12)
+        self.modal_buttons.append(close)
+
+        field_y = py0 + 76
+        draw.rr(cv, px0 + 28, field_y, px1 - 150, field_y + 36, 10, fill=theme.FIELD,
+                outline=theme.BORDER, tags="modal")
+        self.entries.get("skin_nick") or self._entry("skin_nick", str(self._skin.get("nick") or ""))
+        self._place_entry("skin_nick", px0 + 28, field_y, px1 - px0 - 178, 36)
+        entry = self.entries["skin_nick"]
+        entry.bind("<Return>", lambda _e: self._skin_search())
+        show = CanvasButton(self, px1 - 138, field_y, px1 - 28, field_y + 36, "Показать",
+                            command=self._skin_search, kind="primary", size=9,
+                            enabled=not self._skin["busy"])
+        self.modal_buttons.append(show)
+
+        status_y = field_y + 52
+        if self._skin["error"]:
+            draw.text(cv, px0 + 28, status_y, str(self._skin["error"])[:88], 8,
+                      theme.DANGER, "normal", "w", "modal")
+        elif self._skin["busy"]:
+            draw.text(cv, px0 + 28, status_y, "Загружаю…", 8, theme.MUTED, "normal",
+                      "w", "modal")
+        else:
+            draw.text(cv, px0 + 28, status_y, "Ник — латиница, цифры и подчёркивание.",
+                      8, theme.DIM, "normal", "w", "modal")
+
+        image = self._skin.get("image")
+        if image is not None:
+            cv.create_image((px0 + px1) / 2, py0 + 260, image=image, tags=("modal", "skin_img"))
+        else:
+            draw.rr(cv, px0 + 28, py0 + 190, px1 - 28, py0 + 330, 14, fill=theme.CARD,
+                    outline=theme.BORDER, tags="modal")
+            draw.text(cv, (px0 + px1) / 2, py0 + 260, "Здесь появится голова скина",
+                      9, theme.DIM, "normal", "center", "modal")
+
+        save = CanvasButton(self, px0 + 24, py1 - 56, px0 + 204, py1 - 20,
+                            "Сохранить PNG", command=self._skin_save, kind="ghost",
+                            size=9, enabled=bool(self._skin.get("path")))
+        folder = CanvasButton(self, px0 + 214, py1 - 56, px0 + 394, py1 - 20,
+                              "Открыть папку", command=self._skin_folder, kind="ghost",
+                              size=9)
+        self.modal_buttons.extend([save, folder])
+
+    def _skin_search(self) -> None:
+        entry = self.entries.get("skin_nick")
+        nick = entry.get().strip() if entry is not None else str(self._skin.get("nick") or "")
+        self._skin_load(nick)
+
+    def _skin_load(self, nick: str) -> None:
+        if self._skin["busy"]:
+            return
+        self._skin.update(nick=nick, busy=True, error="")
+        self._draw_modal()
+        data_dir = self._data_dir()
+
+        def work() -> None:
+            try:
+                path = skins_core.head(data_dir, nick, 192)
+                image = None
+                try:
+                    image = tk.PhotoImage(file=str(path))
+                except tk.TclError:
+                    image = None
+                error = "" if image is not None else "Картинка не открылась"
+            except Exception as exc:  # noqa: BLE001 - показываем пользователю
+                path, image, error = None, None, str(exc)
+            self._skin.update(busy=False, path=path, image=image, error=error)
+            self._post(lambda: self._draw_modal() if self.modal == "skin" else None)
+
+        threading.Thread(target=work, daemon=True, name="skin-load").start()
+
+    def _skin_save(self) -> None:
+        source = self._skin.get("path")
+        if not source:
+            return
+        nick = str(self._skin.get("nick") or "skin")
+        target = filedialog.asksaveasfilename(
+            title="Сохранить скин",
+            defaultextension=".png",
+            initialfile=f"{nick}-skin.png",
+            filetypes=[("PNG", "*.png")],
+        )
+        if not target:
+            return
+        try:
+            skins_core.save_copy(Path(source), Path(target))
+            self._push_log(f"Скин сохранён: {target}")
+        except OSError as exc:
+            self._push_log(f"Скин не сохранился: {exc}")
+
+    def _skin_folder(self) -> None:
+        target = Path(self._data_dir()) / "cache" / "skins"
+        target.mkdir(parents=True, exist_ok=True)
+        try:
+            os.startfile(str(target))  # noqa: S606 - открытие проводника
+        except OSError:
+            self._push_log("Проводник не открылся")
 
     # ------------------------------------------------------------ библиотека
 
@@ -2346,6 +2994,9 @@ class Launcher(tk.Tk):
         self.entries.get("nick_settings") or self._entry("nick_settings", self.cfg.get("nickname") or "Steve")
         self._place_entry("nick_settings", CX0 + 28, 178, 320, 38)
         draw.text(cv, CX0 + 360, 197, "до 16 символов, для одиночной игры", 8, theme.DIM, "normal", "w", "page")
+        skin = CanvasButton(self, CX0 + 700, 178, CX0 + 844, 216, "Скин",
+                            command=self._open_skin_modal, kind="ghost", size=9)
+        self.page_buttons.append(skin)
 
         draw.text(cv, CX0 + 28, 244, "Оперативная память", 9, theme.MUTED, "normal", "w", "page")
         self._draw_ram_slider(CX0 + 28, 276)

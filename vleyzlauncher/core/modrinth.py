@@ -46,11 +46,34 @@ def search(
 ) -> list[dict]:
     """Ищет моды, совместимые с версией игры и загрузчиком."""
     loader = _loader_id(loader)
-    facets = [
-        ["project_type:mod"],
-        [f"versions:{game_version}"],
-        [f"categories:{loader}"],
-    ]
+    return _search(
+        query,
+        [["project_type:mod"], [f"versions:{game_version}"], [f"categories:{loader}"]],
+        limit,
+        offset,
+    )
+
+
+def search_type(
+    query: str,
+    game_version: str,
+    project_type: str,
+    limit: int = PAGE_LIMIT,
+    offset: int = 0,
+    loader: str | None = None,
+) -> list[dict]:
+    """Поиск ресурспаков и шейдеров: загрузчик для них не нужен."""
+    if project_type not in ("resourcepack", "shader", "mod"):
+        raise ModrinthError(f"Неизвестный тип проекта: {project_type}")
+    facets = [["project_type:" + project_type]]
+    if game_version:
+        facets.append([f"versions:{game_version}"])
+    if loader:
+        facets.append([f"categories:{_loader_id(loader)}"])
+    return _search(query, facets, limit, offset)
+
+
+def _search(query: str, facets: list[list[str]], limit: int, offset: int) -> list[dict]:
     data = _call(
         "/search",
         {
@@ -77,7 +100,8 @@ def search(
                 "downloads": int(hit.get("downloads") or 0),
                 "icon_url": str(hit.get("icon_url") or ""),
                 "author": str(hit.get("author") or ""),
-                "url": f"https://modrinth.com/mod/{hit.get('slug') or hit.get('project_id')}",
+                "url": f"https://modrinth.com/{hit.get('project_type') or 'mod'}/"
+                       f"{hit.get('slug') or hit.get('project_id')}",
             }
         )
     return result
@@ -128,6 +152,24 @@ def _sort_key(item: dict) -> tuple:
 
 def pick_version(project_id: str, game_version: str, loader: str) -> dict | None:
     items = versions(project_id, game_version, loader)
+    if not items:
+        return None
+    return max(items, key=_sort_key)
+
+
+def versions_for(project_id: str, game_version: str) -> list[dict]:
+    """Версии проекта без фильтра по загрузчику — для ресурспаков и шейдеров."""
+    params: dict = {}
+    if game_version:
+        params["game_versions"] = json.dumps([game_version], separators=(",", ":"))
+    data = _call(f"/project/{urllib.parse.quote(str(project_id))}/version", params or None)
+    if not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, dict)]
+
+
+def pick_pack_version(project_id: str, game_version: str) -> dict | None:
+    items = versions_for(project_id, game_version)
     if not items:
         return None
     return max(items, key=_sort_key)
