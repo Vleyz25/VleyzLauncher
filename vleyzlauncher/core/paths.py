@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -201,6 +202,36 @@ def _migrate_legacy() -> None:
     log.info("конфиг перенесён из %s в %s", legacy, target)
 
 
+def _same_path(left: str | Path, right: str | Path) -> bool:
+    try:
+        return os.path.normcase(os.path.normpath(str(left))) == os.path.normcase(
+            os.path.normpath(str(right))
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def migrate_portable_data() -> Path | None:
+    """Переносит старую папку игры в папку лаунчера при переносимой установке.
+
+    Нужно, когда человек ставит 1.9+ поверх 1.8: данные лежали в
+    ``%APPDATA%\\VleyzLauncher\\minecraft``, а теперь должны жить рядом с exe.
+    """
+    if not is_portable():
+        return None
+    source = state_dir() / "minecraft"
+    target = app_dir() / "minecraft"
+    if not source.is_dir() or target.exists():
+        return None
+    try:
+        shutil.move(str(source), str(target))
+    except OSError as exc:
+        log.warning("не удалось перенести %s в %s: %s", source, target, exc)
+        return None
+    log.info("данные игры перенесены из %s в %s", source, target)
+    return target
+
+
 def load_config() -> dict:
     cfg = dict(CONFIG_DEFAULTS)
     _migrate_legacy()
@@ -215,8 +246,20 @@ def load_config() -> dict:
             # Незнакомые ключи сохраняем: их может добавить новая версия.
             cfg.update(stored)
     cfg = _map_secrets(cfg, secure.unprotect)
-    if not cfg.get("data_dir"):
+    stored_dir = str(cfg.get("data_dir") or "")
+    changed = False
+    if is_portable():
+        # Переносимая установка главнее старого абсолютного пути из конфига:
+        # иначе игра осталась бы в %APPDATA%, а не рядом с exe.
+        if not stored_dir or _same_path(stored_dir, state_dir() / "minecraft"):
+            portable_dir = str(default_data_dir())
+            if portable_dir != stored_dir:
+                cfg["data_dir"] = portable_dir
+                changed = True
+    elif not stored_dir:
         cfg["data_dir"] = str(default_data_dir())
+    if changed:
+        save_config(cfg)
     return cfg
 
 
@@ -243,7 +286,11 @@ def save_config(cfg: dict) -> bool:
 
 
 def data_dir(cfg: dict) -> Path:
-    return Path(cfg.get("data_dir") or default_data_dir())
+    value = str(cfg.get("data_dir") or "")
+    if is_portable() and (not value or _same_path(value, state_dir() / "minecraft")):
+        # Старый абсолютный путь из конфига не должен уводить игру в %APPDATA%.
+        return app_dir() / "minecraft"
+    return Path(value or default_data_dir())
 
 
 def human_size(num: float) -> str:

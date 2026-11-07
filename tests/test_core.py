@@ -596,6 +596,64 @@ class InstallerLayoutTests(unittest.TestCase):
         self.assertIn('{portable}', template)
 
 
+class PortableConfigTests(unittest.TestCase):
+    def _env(self, folder: Path):
+        app = folder / "VleyzLauncher"
+        app.mkdir()
+        profile = folder / "profile"
+        (profile / "VleyzLauncher").mkdir(parents=True)
+        (app / paths.PORTABLE_MARKER).write_text("{}", encoding="utf-8")
+        return app, profile
+
+    def test_portable_wins_over_old_absolute_data_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            app, profile = self._env(root)
+            legacy = profile / "VleyzLauncher" / "minecraft"
+            cfg_file = profile / "VleyzLauncher" / "config.json"
+            cfg_file.write_text(json.dumps({"data_dir": str(legacy)}), encoding="utf-8")
+            with mock.patch.object(paths, "app_dir", return_value=app), \
+                    mock.patch.dict(os.environ, {"APPDATA": str(profile)}):
+                cfg = paths.load_config()
+            self.assertEqual(Path(cfg["data_dir"]), app / "minecraft")
+
+    def test_custom_data_dir_kept_in_portable(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            app, profile = self._env(root)
+            custom = root / "my-worlds"
+            cfg_file = profile / "VleyzLauncher" / "config.json"
+            cfg_file.write_text(json.dumps({"data_dir": str(custom)}), encoding="utf-8")
+            with mock.patch.object(paths, "app_dir", return_value=app), \
+                    mock.patch.dict(os.environ, {"APPDATA": str(profile)}):
+                cfg = paths.load_config()
+            self.assertEqual(Path(cfg["data_dir"]), custom)
+
+    def test_data_dir_ignores_stale_legacy_path(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            app, profile = self._env(root)
+            legacy = str(profile / "VleyzLauncher" / "minecraft")
+            with mock.patch.object(paths, "app_dir", return_value=app), \
+                    mock.patch.dict(os.environ, {"APPDATA": str(profile)}):
+                self.assertEqual(paths.data_dir({"data_dir": legacy}), app / "minecraft")
+                self.assertEqual(paths.data_dir({}), app / "minecraft")
+
+    def test_migration_moves_old_game_folder(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            app, profile = self._env(root)
+            old = profile / "VleyzLauncher" / "minecraft"
+            (old / "saves" / "world").mkdir(parents=True)
+            (old / "saves" / "world" / "level.dat").write_bytes(b"level")
+            with mock.patch.object(paths, "app_dir", return_value=app), \
+                    mock.patch.dict(os.environ, {"APPDATA": str(profile)}):
+                moved = paths.migrate_portable_data()
+            self.assertIsNotNone(moved)
+            self.assertTrue((app / "minecraft" / "saves" / "world" / "level.dat").is_file())
+            self.assertFalse(old.exists())
+
+
 class I18nTests(unittest.TestCase):
     def test_english_translation_and_patterns(self) -> None:
         previous = i18n.CURRENT

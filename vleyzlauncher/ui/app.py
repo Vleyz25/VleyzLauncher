@@ -34,27 +34,38 @@ from ..core import updates as updates_core
 from ..core import versions as version_core
 from ..core.installer import InstallError, Installer, Progress, uninstall
 from ..core.net import DownloadCancelled
-from . import draw, theme
+from . import draw, pages, theme
+from .layout import (
+    BAR_H,
+    BAR_X0,
+    BAR_X1,
+    BAR_Y,
+    CELL_H,
+    CELL_W,
+    CELL_GAP,
+    CX0,
+    CX1,
+    GRID_COLS,
+    GRID_ROWS,
+    GRID_TOP,
+    LEFT_X1,
+    LOADER_H,
+    LOADER_STEP,
+    LOADER_TOP,
+    PAGE_SIZE,
+    RIGHT_X0,
+    RP_X0,
+    RP_X1,
+    SEARCH_Y0,
+    SEARCH_Y1,
+    SIDE_W,
+    TITLE_H,
+    W,
+    H,
+)
+from .widgets import CanvasButton
 
 log = logging.getLogger("vleyz.ui")
-
-W, H = 1180, 724
-TITLE_H = 46
-SIDE_W = 236
-
-CX0, CX1 = 272, 1144
-LEFT_X1 = 866
-RIGHT_X0 = 886
-
-SEARCH_Y0, SEARCH_Y1 = 116, 152
-GRID_TOP = 164
-GRID_COLS, GRID_ROWS = 4, 7
-CELL_W, CELL_H, CELL_GAP = 142, 58, 8
-PAGE_SIZE = GRID_COLS * GRID_ROWS
-
-RP_X0, RP_X1 = 906, 1124
-LOADER_TOP, LOADER_STEP, LOADER_H = 282, 46, 40
-BAR_X0, BAR_X1, BAR_Y, BAR_H = RP_X0, RP_X1, 518, 6
 
 NAV = [
     ("home", "Главная"),
@@ -67,89 +78,6 @@ NAV = [
 ]
 
 
-class CanvasButton:
-    _seq = 0
-
-    def __init__(self, app, x0, y0, x1, y1, label, command=None, kind="primary", size=10, enabled=True):
-        CanvasButton._seq += 1
-        self.tag = f"btn{CanvasButton._seq}"
-        self.app = app
-        self.box = (x0, y0, x1, y1)
-        self.kind = kind
-        self.command = command
-        self.enabled = enabled
-        self.hover = False
-        self.cv = app.canvas
-        self.bg = self._bg()
-        self.radius = min(12, (y1 - y0) / 2)
-        self.bg_id = draw.rr(self.cv, x0, y0, x1, y1, self.radius, fill=self.bg,
-                             outline=self._outline(), width=1, tags=self.tag)
-        self.label_id = self.cv.create_text(
-            (x0 + x1) / 2, (y0 + y1) / 2, text=i18n.tr(label), tags=self.tag, anchor="center",
-            font=(theme.FONT_SEMI, size), fill=self._fg(),
-        )
-        self.cv.tag_bind(self.tag, "<Enter>", self._enter)
-        self.cv.tag_bind(self.tag, "<Leave>", self._leave)
-        self.cv.tag_bind(self.tag, "<Button-1>", self._click)
-
-    def _bg(self):
-        if self.kind == "primary":
-            return theme.ACCENT if self.enabled else theme.PRIMARY_OFF
-        if self.kind == "danger":
-            return theme.DANGER_BG
-        return theme.CARD
-
-    def _fg(self):
-        if self.kind == "primary":
-            return theme.ON_ACCENT if self.enabled else theme.DIM
-        if self.kind == "danger":
-            return theme.DANGER if self.enabled else theme.DIM
-        return theme.TEXT if self.enabled else theme.DIM
-
-    def _outline(self):
-        if self.kind == "danger":
-            return theme.DANGER_BORDER
-        return theme.BORDER if self.kind != "primary" else ""
-
-    def _enter(self, _event=None):
-        if not self.enabled:
-            return
-        self.hover = True
-        fill = {
-            "primary": draw.mix(theme.ACCENT, "#FFFFFF", 0.14),
-            "danger": theme.DANGER_HOVER,
-        }.get(self.kind, theme.BUTTON_HOVER)
-        self.cv.itemconfigure(self.bg_id, fill=fill)
-        self.cv.configure(cursor="hand2")
-
-    def _leave(self, _event=None):
-        self.hover = False
-        self.cv.itemconfigure(self.bg_id, fill=self._bg())
-        self.cv.configure(cursor="")
-
-    def _click(self, _event=None):
-        if self.enabled and self.command:
-            self.command()
-
-    def set_enabled(self, enabled: bool):
-        if self.enabled == enabled:
-            return
-        self.enabled = enabled
-        self.cv.itemconfigure(self.bg_id, fill=self._bg(), outline=self._outline())
-        self.cv.itemconfigure(self.label_id, fill=self._fg())
-
-    def set_label(self, label: str):
-        self.cv.itemconfigure(self.label_id, text=i18n.tr(label))
-
-    def set_kind(self, kind: str):
-        self.kind = kind
-        self.cv.itemconfigure(self.bg_id, fill=self._bg(), outline=self._outline())
-        self.cv.itemconfigure(self.label_id, fill=self._fg())
-
-    def destroy(self):
-        self.cv.delete(self.tag)
-
-
 class Launcher(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -158,11 +86,16 @@ class Launcher(tk.Tk):
         theme.apply(str(self.cfg.get("theme") or "dark"))
         i18n.set_language(str(self.cfg.get("language") or "ru"))
         profiles_core.ensure(self.cfg)
+        resolved_dir = str(paths.data_dir(self.cfg))
+        if str(self.cfg.get("data_dir") or "") != resolved_dir:
+            self.cfg["data_dir"] = resolved_dir
+            paths.save_config(self.cfg)
         self.data_owned = False
         try:
-            self.data_owned = paths.ensure_data_root(paths.data_dir(self.cfg))
             if getattr(sys, "frozen", False):
                 paths.mark_install(paths.app_dir())
+            paths.migrate_portable_data()
+            self.data_owned = paths.ensure_data_root(paths.data_dir(self.cfg))
         except OSError:
             self.data_owned = False
         self.game = str(self.cfg.get("selected_version") or "")
@@ -631,6 +564,8 @@ class Launcher(tk.Tk):
         self.page_buttons: list[CanvasButton] = []
         self._refresh_nav()
         self._scan_installed()
+        if pages.draw(key, self):
+            return
         if key == "home":
             self._draw_home()
         elif key == "play":
@@ -644,7 +579,7 @@ class Launcher(tk.Tk):
         elif key == "settings":
             self._draw_settings()
         else:
-            self._draw_about()
+            self._draw_home()
 
     def _header(self, title, subtitle):
         draw.text(self.canvas, CX0, 74, title, 20, theme.TEXT, "bold", "w", "page")
@@ -2854,80 +2789,6 @@ class Launcher(tk.Tk):
 
     # ------------------------------------------------------------ библиотека
 
-    def _draw_library(self):
-        cv = self.canvas
-        self._header("Библиотека", "Все установленные версии · запуск в один клик")
-        data_dir = self._data_dir()
-        items = loaders.installed_versions(data_dir)
-        per_page = 5
-        pages = max(1, (len(items) + per_page - 1) // per_page)
-        self.library_offset = min(self.library_offset, pages - 1)
-        chunk = items[self.library_offset * per_page:(self.library_offset + 1) * per_page]
-
-        if not items:
-            draw.rr(cv, CX0, 140, CX1, 250, 16, fill=theme.CARD_BOTTOM, outline=theme.BORDER, tags="page")
-            draw.text(cv, CX0 + 28, 176, "Пока ничего не установлено", 12, theme.TEXT, "bold", "w", "page")
-            draw.text(cv, CX0 + 28, 202, "Выберите версию на странице «Играть» и нажмите «Скачать».",
-                      9, theme.MUTED, "normal", "w", "page")
-
-        y = 140
-        for item in chunk:
-            vid = item["id"]
-            accent = theme.loader_accent(item["loader"])
-            launching = self.launching_id == vid
-            running = self.running_id == vid
-            selected = self.installed_id == vid
-
-            draw.rr(cv, CX0, y, CX1, y + 92, 16,
-                    fill=theme.SELECT_BG if selected else theme.CARD,
-                    outline=accent if selected else theme.BORDER, width=1 if selected else 2,
-                    tags="page")
-            draw.cube(cv, CX0 + 44, y + 46, 34, accent, tags="page")
-            draw.text(cv, CX0 + 80, y + 26, f"Minecraft {item['game']}", 13, theme.TEXT, "bold", "w", "page")
-            draw.text(cv, CX0 + 80, y + 47, f"{item['label']} · {item['id']}", 9, theme.MUTED,
-                      "normal", "w", "page")
-
-            status_color = theme.ACCENT if (running or selected) else theme.MUTED
-            status_text = ("запущена" if running else
-                           "запускаю…" if launching else
-                           f"установлена · {paths.human_size(item['size'])}")
-            draw.dot(cv, CX0 + 84, y + 68, 3, status_color, tags="page")
-            draw.text(cv, CX0 + 94, y + 68, status_text, 8, status_color, "normal", "w", "page")
-
-            instance_path = instances_core.path(data_dir, vid)
-            path_text = str(instance_path if instance_path.is_dir() else item["path"])
-            if len(path_text) > 56:
-                path_text = "…" + path_text[-55:]
-            draw.text(cv, CX0 + 320, y + 68, path_text, 8, theme.DIM, "normal", "w", "page")
-
-            if running or launching:
-                play_btn = CanvasButton(self, CX1 - 352, y + 26, CX1 - 250, y + 66, "Запущена",
-                                        command=None, kind="ghost", size=9, enabled=False)
-            else:
-                play_btn = CanvasButton(self, CX1 - 352, y + 26, CX1 - 250, y + 66, "Играть",
-                                        command=lambda it=item: self._start_game(it["id"]),
-                                        kind="primary", size=9)
-            open_btn = CanvasButton(self, CX1 - 238, y + 26, CX1 - 132, y + 66, "Открыть",
-                                    command=lambda v=vid: self._open_version_folder(v),
-                                    kind="ghost", size=9)
-            label = "Точно?" if self._confirm_delete == vid else "Удалить"
-            del_btn = CanvasButton(self, CX1 - 120, y + 26, CX1 - 24, y + 66, label,
-                                   command=lambda v=vid: self._ask_delete(v), kind="danger", size=9)
-            self.page_buttons.extend([play_btn, open_btn, del_btn])
-            y += 100
-
-        draw.text(cv, CX0, y + 14, f"Папка сборок: {data_dir / 'instances'}"[:110], 8, theme.DIM, "normal", "w", "page")
-        if pages > 1:
-            draw.text(cv, CX1 - 90, y + 14, f"стр. {self.library_offset + 1} / {pages}", 8,
-                      theme.MUTED, "normal", "e", "page")
-            prev = CanvasButton(self, CX1 - 84, y - 4, CX1 - 54, y + 26, "←",
-                                command=lambda: self._library_go(-1), kind="ghost", size=9,
-                                enabled=self.library_offset > 0)
-            nxt = CanvasButton(self, CX1 - 50, y - 4, CX1 - 20, y + 26, "→",
-                               command=lambda: self._library_go(1), kind="ghost", size=9,
-                               enabled=self.library_offset < pages - 1)
-            self.page_buttons.extend([prev, nxt])
-
     def _library_go(self, delta):
         self.library_offset = max(0, self.library_offset + delta)
         self._show_page("library")
@@ -3191,40 +3052,6 @@ class Launcher(tk.Tk):
                                       fill=theme.ACCENT)
 
     # ------------------------------------------------------------------- о нас
-
-    def _draw_about(self):
-        cv = self.canvas
-        self._header("О лаунчере", "Чистый лаунчер: ничего не предустановлено")
-        draw.rr(cv, CX0, 132, CX1, 648, 18, fill=theme.PANEL, outline=theme.PANEL_BORDER, tags="page")
-        draw.cube(cv, CX0 + 76, 196, 64, theme.ACCENT, tags="page")
-        draw.text(cv, CX0 + 124, 176, f"Vleyz Launcher {APP_VERSION}", 16, theme.TEXT, "bold", "w", "page")
-        draw.text(cv, CX0 + 124, 200, "Сделал vleyz", 13, theme.ACCENT, "bold", "w", "page")
-        draw.text(cv, CX0 + 124, 222, "Любая версия Minecraft, любой загрузчик — в пару кликов.",
-                  9, theme.MUTED, "normal", "w", "page")
-
-        points = [
-            ("Все версии из манифеста", "Список релизов Mojang подтягивается онлайн: поиск по id, страницы."),
-            ("Fabric, Forge, NeoForge", "Fabric ставится профилем, Forge и NeoForge — их официальными установщиками."),
-            ("Проверка целостности", "Каждый файл сверяется по SHA1, битые и подменённые загрузки отбрасываются."),
-            ("Java сама", "Если нужной Java нет, лаунчер скачает официальную сборку Adoptium."),
-            ("Своя папка игры", "Профиль живёт отдельно от .minecraft, ваши миры и настройки не затрагиваются."),
-        ]
-        y = 272
-        for title, body in points:
-            draw.dot(cv, CX0 + 36, y + 8, 3, theme.ACCENT, tags="page")
-            draw.text(cv, CX0 + 50, y, title, 10, theme.TEXT, "bold", "w", "page")
-            draw.text(cv, CX0 + 50, y + 18, body, 9, theme.MUTED, "normal", "w", "page")
-            y += 46
-
-        draw.hline(cv, CX0 + 28, CX1 - 28, 520, theme.DIVIDER, tags="page")
-        draw.text(cv, CX0 + 28, 540, "Minecraft — торговая марка Mojang Studios. Лаунчер не связан с Mojang.",
-                  8, theme.DIM, "normal", "w", "page")
-        draw.text(cv, CX0 + 28, 560, "Играть можно только на аккаунте, который принадлежит вам (EULA Mojang).",
-                  8, theme.DIM, "normal", "w", "page")
-        check = CanvasButton(self, CX0 + 28, 580, CX0 + 268, 620, "Проверить обновления",
-                             command=lambda: self._check_updates(manual=True), kind="ghost", size=9)
-        self.page_buttons.append(check)
-        draw.text(cv, CX1 - 28, 600, "Сделал vleyz", 9, theme.DIM, "normal", "e", "page")
 
     # ------------------------------------------------------------------ список
 
