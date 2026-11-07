@@ -13,7 +13,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
-from . import instances
+from . import instances, safepath
 
 log = logging.getLogger(__name__)
 
@@ -139,7 +139,7 @@ def restore(data_dir: Path, instance_id: str, name: str) -> Path:
     saves.mkdir(parents=True, exist_ok=True)
     try:
         with zipfile.ZipFile(archive_path) as archive:
-            archive.extractall(saves)
+            safepath.extract_zip(archive, archive.namelist(), saves)
     except (zipfile.BadZipFile, OSError) as exc:
         raise BackupError(f"Архив не распаковался: {exc}") from exc
     return saves

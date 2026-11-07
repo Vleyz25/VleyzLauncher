@@ -6,7 +6,7 @@ import json
 import urllib.parse
 from pathlib import Path
 
-from . import net
+from . import net, safepath
 
 API = "https://api.modrinth.com/v2"
 PAGE_LIMIT = 12
@@ -201,6 +201,7 @@ def _entry(item: dict, dependency: bool) -> dict:
         "url": str(file["url"]),
         "size": int(file.get("size") or 0),
         "sha1": str(hashes.get("sha1") or "") or None,
+        "sha512": str(hashes.get("sha512") or "") or None,
         "dependency": dependency,
         "game_versions": list(item.get("game_versions") or []),
         "loaders": list(item.get("loaders") or []),
@@ -272,13 +273,16 @@ def install(
     log = log or (lambda message: None)
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
+    safepath.require_space(destination, sum(int(item.get("size") or 0) for item in files))
     installed: list[str] = []
     skipped: list[str] = []
     total = len(files)
     for index, item in enumerate(files, start=1):
         if cancel is not None and cancel.is_set():
             raise net.DownloadCancelled()
-        filename = Path(str(item.get("filename") or "mod.jar")).name
+        filename = safepath.sanitize_name(
+            Path(str(item.get("filename") or "mod.jar")).name, "mod.jar"
+        )
         if not filename:
             continue
         target = destination / filename
@@ -295,6 +299,7 @@ def install(
             item.get("sha1"),
             int(item.get("size") or 0) or None,
             cancel=cancel,
+            sha512=item.get("sha512") or None,
         )
         installed.append(filename)
         if on_progress is not None:

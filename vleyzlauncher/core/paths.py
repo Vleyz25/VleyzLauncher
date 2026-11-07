@@ -18,8 +18,10 @@ INSTALL_MARKER = ".vleyz-install"
 DATA_MARKER = ".vleyzlauncher"
 PORTABLE_MARKER = ".vleyz-portable"
 DEFAULT_NICKNAME = "Steve"
+CONFIG_VERSION = 2
 
 CONFIG_DEFAULTS = {
+    "config_version": CONFIG_VERSION,
     "nickname": DEFAULT_NICKNAME,
     "ram_mb": 2048,
     "data_dir": "",
@@ -232,10 +234,57 @@ def migrate_portable_data() -> Path | None:
     return target
 
 
+def _backup_config() -> Path | None:
+    """Копия конфига перед миграцией: если что-то пойдёт не так, будет откат."""
+    source = config_path()
+    if not source.is_file():
+        return None
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    target = source.with_name(f"{source.name}.backup-{stamp}")
+    try:
+        shutil.copy2(source, target)
+        return target
+    except OSError as exc:
+        log.warning("резервная копия конфига не создалась: %s", exc)
+        return None
+
+
+def _migrate_config(cfg: dict, stored_version: object = None) -> bool:
+    """Приводит старый конфиг к текущей схеме. True — что-то изменилось."""
+    if stored_version is None:
+        version = 0
+    else:
+        try:
+            version = int(stored_version)
+        except (TypeError, ValueError):
+            version = 0
+    if version >= CONFIG_VERSION:
+        return False
+    _backup_config()
+    if not isinstance(cfg.get("profiles"), list):
+        cfg["profiles"] = []
+    for key in ("nickname", "theme", "language", "data_dir", "java_path",
+                "selected_version", "selected_loader", "jvm_args", "active_profile"):
+        if not isinstance(cfg.get(key), str):
+            cfg[key] = str(CONFIG_DEFAULTS.get(key) or "")
+    try:
+        cfg["ram_mb"] = int(cfg.get("ram_mb") or 2048)
+    except (TypeError, ValueError):
+        cfg["ram_mb"] = 2048
+    if str(cfg.get("theme") or "") not in ("dark", "grey", "light"):
+        cfg["theme"] = "dark"
+    if str(cfg.get("language") or "") not in i18n.LANGUAGES:
+        cfg["language"] = "ru"
+    cfg["config_version"] = CONFIG_VERSION
+    log.info("конфиг обновлён до схемы %s", CONFIG_VERSION)
+    return True
+
+
 def load_config() -> dict:
     cfg = dict(CONFIG_DEFAULTS)
     _migrate_legacy()
     path = config_path()
+    stored_version: object = None
     if path.is_file():
         try:
             stored = json.loads(path.read_text(encoding="utf-8"))
@@ -244,10 +293,11 @@ def load_config() -> dict:
             stored = None
         if isinstance(stored, dict):
             # Незнакомые ключи сохраняем: их может добавить новая версия.
+            stored_version = stored.get("config_version")
             cfg.update(stored)
     cfg = _map_secrets(cfg, secure.unprotect)
+    changed = _migrate_config(cfg, stored_version)
     stored_dir = str(cfg.get("data_dir") or "")
-    changed = False
     if is_portable():
         # Переносимая установка главнее старого абсолютного пути из конфига:
         # иначе игра осталась бы в %APPDATA%, а не рядом с exe.

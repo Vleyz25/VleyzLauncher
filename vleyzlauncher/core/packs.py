@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from . import instances, modrinth, net
+from . import instances, modrinth, net, safepath
 
 log = logging.getLogger(__name__)
 
@@ -83,7 +83,8 @@ def install(
     entry = modrinth._entry(version, False)
     target_dir = folder(data_dir, instance_id, kind)
     target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / entry["filename"]
+    safepath.require_space(target_dir, int(entry.get("size") or 0))
+    target = target_dir / safepath.sanitize_name(entry["filename"], "pack.zip")
     log_fn(f"Скачиваю {entry['title']}")
     net.download(
         str(entry["url"]),
@@ -91,6 +92,7 @@ def install(
         entry.get("sha1"),
         entry.get("size") or None,
         cancel=cancel,
+        sha512=entry.get("sha512") or None,
     )
     log_fn(f"Готово: {entry['filename']}")
     return entry

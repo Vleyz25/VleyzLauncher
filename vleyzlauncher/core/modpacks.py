@@ -13,7 +13,7 @@ import logging
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from . import instances, net
+from . import instances, net, safepath
 
 log = logging.getLogger(__name__)
 
@@ -29,13 +29,8 @@ class ModpackError(Exception):
 
 def _safe_member(name: str) -> str | None:
     """Путь внутри сборки без выхода из папки инстанса."""
-    text = str(name or "").replace("\\", "/").strip()
-    if not text:
-        return None
-    path = PurePosixPath(text)
-    if path.is_absolute() or ".." in path.parts:
-        return None
-    return str(path)
+    safe = safepath.safe_relative(name)
+    return str(safe) if safe is not None else None
 
 
 def _loader_from_deps(deps: dict) -> tuple[str, str]:
@@ -170,25 +165,11 @@ def inspect(path: Path) -> dict:
 
 
 def _extract(archive: zipfile.ZipFile, members: list[str], target: Path, strip: tuple[str, ...]) -> int:
-    count = 0
-    for name in members:
-        relative = name
-        for prefix in strip:
-            if name.startswith(prefix):
-                relative = name[len(prefix):]
-                break
-        relative = _safe_member(relative)
-        if not relative or relative.endswith("/"):
-            continue
-        destination = target / relative
-        try:
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            with archive.open(name) as source, open(destination, "wb") as sink:
-                sink.write(source.read())
-            count += 1
-        except (OSError, KeyError) as exc:
-            log.warning("не удалось распаковать %s: %s", name, exc)
-    return count
+    """Распаковка через safepath: без выходов из папки и с лимитами."""
+    report = safepath.extract_zip(archive, members, target, strip=strip)
+    if report["skipped"]:
+        log.info("пропущено опасных файлов в архиве: %s", report["skipped"])
+    return report["written"]
 
 
 def install(
@@ -203,6 +184,7 @@ def install(
     log_fn = log_fn or (lambda message: None)
     plan = inspect(archive_path)
     target = instances.ensure(data_dir, instance_id)
+    safepath.require_space(target, sum(int(item.get("size") or 0) for item in plan["files"]))
 
     installed = 0
     skipped = 0

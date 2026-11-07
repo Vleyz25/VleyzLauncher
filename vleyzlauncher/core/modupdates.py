@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from . import modrinth, mods, net
+from . import modrinth, mods, net, safepath
 
 log = logging.getLogger(__name__)
 
@@ -67,6 +67,7 @@ def _entry(filename: str, current: dict, latest: dict) -> dict:
         "url": str(file.get("url") or ""),
         "filename_new": Path(str(file.get("filename") or filename)).name,
         "sha1": str(hashes.get("sha1") or "") or None,
+        "sha512": str(hashes.get("sha512") or "") or None,
         "size": int(file.get("size") or 0) or None,
     }
 
@@ -129,7 +130,9 @@ def apply(
     folder = mods.mods_dir(Path(data_dir), instance_id)
     folder.mkdir(parents=True, exist_ok=True)
     old_name = str(entry.get("filename") or "")
-    new_name = Path(str(entry.get("filename_new") or old_name)).name
+    new_name = safepath.sanitize_name(
+        Path(str(entry.get("filename_new") or old_name)).name, "mod.jar"
+    )
     if not new_name:
         raise ModUpdateError("У обновления нет имени файла")
     target = folder / new_name
@@ -141,6 +144,7 @@ def apply(
         entry.get("sha1"),
         entry.get("size"),
         cancel=cancel,
+        sha512=entry.get("sha512") or None,
     )
     if old_name and old_name != new_name:
         old_path = folder / old_name

@@ -6,6 +6,7 @@ import ctypes
 import faulthandler
 import logging
 import logging.handlers
+import re
 import sys
 import threading
 from pathlib import Path
@@ -16,6 +17,37 @@ from . import paths
 LOG = logging.getLogger("vleyz")
 _crash_file = None
 _dialog_shown = False
+
+_SECRET_PATTERNS = (
+    (re.compile(r'("(?:access_token|refresh_token|token|password|secret)"\s*:\s*")([^"]+)(")',
+                re.IGNORECASE), r"\1***\3"),
+    (re.compile(r"\b(access_token|refresh_token|token|password|secret)=([^\s&,;]+)",
+                re.IGNORECASE), r"\1=***"),
+    (re.compile(r"\bBearer\s+([A-Za-z0-9._\-]{8,})"), "Bearer ***"),
+)
+
+
+def redact(text: str) -> str:
+    """Скрывает токены и пароли в строке, которую пишем в лог."""
+    result = str(text)
+    for pattern, replacement in _SECRET_PATTERNS:
+        result = pattern.sub(replacement, result)
+    return result
+
+
+class RedactFilter(logging.Filter):
+    """Маскирует секреты, даже если они попали в текст исключения."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:  # noqa: BLE001 - форматирование не должно ронять лог
+            return True
+        cleaned = redact(message)
+        if cleaned != message:
+            record.msg = cleaned
+            record.args = ()
+        return True
 
 
 def _show_error(exc: BaseException, where: str = "") -> None:
@@ -87,6 +119,10 @@ def setup_logging(show_dialog: bool = False) -> Path:
             stream = logging.StreamHandler()
             stream.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
             root.addHandler(stream)
+
+    for handler in root.handlers:
+        if not any(isinstance(item, RedactFilter) for item in handler.filters):
+            handler.addFilter(RedactFilter())
 
     # Падения на уровне нативного кода (Java/ctypes) тоже попадут в файл.
     if _crash_file is None:

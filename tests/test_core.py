@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import http.server
 import json
+import logging
 import os
 import sys
 import tempfile
@@ -18,6 +19,7 @@ from vleyzlauncher.core import (  # noqa: E402
     backups,
     instances,
     launch,
+    logging_setup,
     modpacks,
     modrinth,
     mods,
@@ -25,6 +27,7 @@ from vleyzlauncher.core import (  # noqa: E402
     packs,
     paths,
     profiles,
+    safepath,
     secure,
     social,
     updates,
@@ -652,6 +655,104 @@ class PortableConfigTests(unittest.TestCase):
             self.assertIsNotNone(moved)
             self.assertTrue((app / "minecraft" / "saves" / "world" / "level.dat").is_file())
             self.assertFalse(old.exists())
+
+
+class SafePathTests(unittest.TestCase):
+    def test_sanitize_reserved_and_bad_chars(self) -> None:
+        self.assertEqual(safepath.sanitize_name("CON.txt"), "_CON.txt")
+        self.assertEqual(safepath.sanitize_name("a<b>c.jar"), "a_b_c.jar")
+        self.assertEqual(safepath.sanitize_name("  ..  "), "file")
+        self.assertEqual(safepath.sanitize_name(""), "file")
+
+    def test_safe_relative_rejects_escapes(self) -> None:
+        self.assertIsNone(safepath.safe_relative("../evil.txt"))
+        self.assertIsNone(safepath.safe_relative("/etc/passwd"))
+        self.assertIsNone(safepath.safe_relative("mods/../../x.jar"))
+        self.assertEqual(str(safepath.safe_relative("mods/ok.jar")), "mods/ok.jar")
+
+    def test_extract_zip_skips_escape(self) -> None:
+        import zipfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            archive_path = root / "pack.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("../evil.txt", b"bad")
+                archive.writestr("ok.txt", b"good")
+            target = root / "target"
+            with zipfile.ZipFile(archive_path) as archive:
+                report = safepath.extract_zip(archive, archive.namelist(), target)
+            self.assertEqual(report["written"], 1)
+            self.assertGreaterEqual(report["skipped"], 1)
+            self.assertTrue((target / "ok.txt").is_file())
+            self.assertFalse((root / "evil.txt").exists())
+
+    def test_extract_zip_limits_files(self) -> None:
+        import zipfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            archive_path = root / "many.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                for index in range(3):
+                    archive.writestr(f"f{index}.txt", b"x")
+            with zipfile.ZipFile(archive_path) as archive:
+                with self.assertRaises(safepath.LimitError):
+                    safepath.extract_zip(archive, archive.namelist(), root / "out",
+                                         max_files=2)
+
+    def test_require_space_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            with mock.patch.object(safepath, "free_space", return_value=10):
+                with self.assertRaises(safepath.SpaceError):
+                    safepath.require_space(Path(folder), 1000)
+
+
+class RedactionTests(unittest.TestCase):
+    def test_redact_json_and_query(self) -> None:
+        self.assertNotIn("abc123", logging_setup.redact('{"access_token": "abc123"}'))
+        self.assertIn("***", logging_setup.redact('{"access_token": "abc123"}'))
+        self.assertNotIn("hunter2", logging_setup.redact("password=hunter2&x=1"))
+        self.assertIn("Bearer ***", logging_setup.redact("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9"))
+
+    def test_filter_cleans_record(self) -> None:
+        record = logging.LogRecord("vleyz", logging.INFO, __file__, 1,
+                                   'token="secret-value"', (), None)
+        self.assertTrue(logging_setup.RedactFilter().filter(record))
+        self.assertNotIn("secret-value", record.getMessage())
+
+
+class ConfigMigrationTests(unittest.TestCase):
+    def _load(self, folder: Path, stored: dict) -> dict:
+        profile = folder / "profile"
+        (profile / "VleyzLauncher").mkdir(parents=True, exist_ok=True)
+        (profile / "VleyzLauncher" / "config.json").write_text(
+            json.dumps(stored), encoding="utf-8"
+        )
+        with mock.patch.dict(os.environ, {"APPDATA": str(profile)}):
+            return paths.load_config()
+
+    def test_old_config_is_migrated_and_backed_up(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            saved = {"nickname": "Alex", "ram_mb": "4096", "theme": "weird",
+                     "profiles": "broken"}
+            cfg = self._load(root, saved)
+            self.assertEqual(cfg["config_version"], paths.CONFIG_VERSION)
+            self.assertEqual(cfg["ram_mb"], 4096)
+            self.assertEqual(cfg["theme"], "dark")
+            self.assertEqual(cfg["profiles"], [])
+            self.assertEqual(cfg["nickname"], "Alex")
+            backups = list((root / "profile" / "VleyzLauncher").glob("config.json.backup-*"))
+            self.assertTrue(backups)
+
+    def test_current_config_not_touched(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            saved = {"config_version": paths.CONFIG_VERSION, "nickname": "Alex"}
+            self._load(root, saved)
+            backups = list((root / "profile" / "VleyzLauncher").glob("config.json.backup-*"))
+            self.assertFalse(backups)
 
 
 class I18nTests(unittest.TestCase):

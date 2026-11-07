@@ -80,6 +80,14 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def sha512_file(path: Path) -> str:
+    digest = hashlib.sha512()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def file_is_valid(path: Path, sha1: str | None, size: int | None) -> bool:
     if not path.is_file():
         return False
@@ -103,6 +111,7 @@ def download(
     on_bytes: Callable[[int], None] | None = None,
     cancel=None,
     resume: bool = True,
+    sha512: str | None = None,
 ) -> None:
     """Скачать файл с докачкой.
 
@@ -160,6 +169,8 @@ def download(
                 raise ChecksumError(f"Размер не совпал: {dest.name} ({total} != {size})")
             if sha1 and sha1_file(tmp) != sha1:
                 raise ChecksumError(f"Проверка SHA1 не прошла: {dest.name}")
+            if sha512 and sha512_file(tmp) != sha512:
+                raise ChecksumError(f"Проверка SHA512 не прошла: {dest.name}")
             os.replace(tmp, dest)
             return
         except DownloadCancelled:
