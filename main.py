@@ -12,6 +12,7 @@ from vleyzlauncher.core import instances as instances_core
 from vleyzlauncher.core import launch as launch_core
 from vleyzlauncher.core import loaders, paths, servers, versions
 from vleyzlauncher.core import microsoft as microsoft_core
+from vleyzlauncher.core import telemetry as telemetry_core
 from vleyzlauncher.core.logging_setup import setup_logging
 
 log = logging.getLogger("vleyz.main")
@@ -146,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
         ram = args.ram or int(cfg.get("ram_mb", 2048))
         return cli_command(args.command, args.loader, nickname, ram, args.server)
 
+    telemetry_core.ping_install_async()
     from vleyzlauncher.ui.app import Launcher
 
     app = Launcher()

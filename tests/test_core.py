@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import http.server
 import json
@@ -57,6 +57,7 @@ from vleyzlauncher.core import (  # noqa: E402
     servers,
     skins,
     social,
+    telemetry,
     updates,
     versions,
 )
@@ -2208,6 +2209,41 @@ class ServersDatTests(unittest.TestCase):
             servers._write_servers_dat(path, [{"name": "Старый", "ip": "1.2.3.4"}])
             path.write_bytes(gzip.compress(path.read_bytes()))
             self.assertEqual(servers._read_servers_dat(path)[0]["ip"], "1.2.3.4")
+
+
+class TelemetryTests(unittest.TestCase):
+    def test_ping_sent_once_per_install(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            with mock.patch.object(telemetry.net, "fetch_text", return_value="{}") as fetch:
+                self.assertTrue(telemetry.ping_install({"telemetry": True}, base))
+                self.assertFalse(telemetry.ping_install({"telemetry": True}, base))
+            self.assertEqual(fetch.call_count, 1)
+            self.assertTrue((base / telemetry.MARKER).is_file())
+
+    def test_disabled_in_config_sends_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            with mock.patch.object(telemetry.net, "fetch_text") as fetch:
+                self.assertFalse(telemetry.ping_install({"telemetry": False}, base))
+            fetch.assert_not_called()
+            self.assertFalse((base / telemetry.MARKER).exists())
+
+    def test_network_error_keeps_marker_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            with mock.patch.object(telemetry.net, "fetch_text",
+                                   side_effect=net.DownloadError("нет сети")):
+                self.assertFalse(telemetry.ping_install({}, base))
+            self.assertFalse((base / telemetry.MARKER).exists())
+
+    def test_async_ping_does_not_raise(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            with mock.patch.object(telemetry.net, "fetch_text", return_value="{}"):
+                thread = telemetry.ping_install_async({"telemetry": True}, base)
+                thread.join(timeout=5)
+            self.assertTrue((base / telemetry.MARKER).is_file())
 
 
 if __name__ == "__main__":

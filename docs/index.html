@@ -229,7 +229,7 @@
   </div>
   <div class="meta">
     <span class="chip"><b id="fsize">≈ 24 МБ</b> · установщик</span>
-    <span class="chip"><b id="dls">—</b> · скачиваний</span>
+    <span class="chip"><b id="dls">—</b> · установок</span>
     <span class="chip"><b>Windows 10 / 11</b> · 64-bit</span>
     <span class="chip"><b>Microsoft и Ely.by</b> · вход по коду</span>
     <span class="chip"><b>Java не нужна</b> — скачается сама</span>
@@ -286,23 +286,19 @@
 <section id="stats" style="padding-top:20px">
   <div class="wrap">
     <h2 class="sec-title reveal">Статистика</h2>
-    <p class="sec-sub reveal">Считается по скачиваниям файлов с GitHub. Посещения — по счётчику сайта.</p>
-    <div class="panel reveal" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px">
+    <p class="sec-sub reveal">Установки считаются, когда лаунчер впервые запустили на компьютере. Скачивания файлов — по данным GitHub.</p>
+    <div class="panel reveal" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px">
       <div>
-        <div style="font-size:28px;font-weight:800" id="stat-total">—</div>
-        <div style="color:var(--muted);font-size:13px">скачиваний всего</div>
-      </div>
-      <div>
-        <div style="font-size:28px;font-weight:800" id="stat-setup">—</div>
-        <div style="color:var(--muted);font-size:13px">установщиков</div>
-      </div>
-      <div>
-        <div style="font-size:28px;font-weight:800" id="stat-exe">—</div>
-        <div style="color:var(--muted);font-size:13px">портативных exe</div>
+        <div style="font-size:28px;font-weight:800" id="stat-installs">—</div>
+        <div style="color:var(--muted);font-size:13px">установок и запусков</div>
       </div>
       <div>
         <div style="font-size:28px;font-weight:800" id="stat-visits">—</div>
-        <div style="color:var(--muted);font-size:13px">посещений</div>
+        <div style="color:var(--muted);font-size:13px">посещений сайта</div>
+      </div>
+      <div>
+        <div style="font-size:28px;font-weight:800" id="stat-downloads">—</div>
+        <div style="color:var(--muted);font-size:13px">скачиваний файлов</div>
       </div>
     </div>
     <p class="reveal" id="stat-note" style="margin-top:12px;color:var(--muted);font-size:13px"></p>
@@ -417,41 +413,50 @@
     }).catch(function(){});
 
 
-  // статистика скачиваний из GitHub (публичный API, без токена)
+  // статистика: скачивания файлов из GitHub и установки по счётчику лаунчера
   (function(){
     var REPO='Vleyz25/VleyzLauncher';
-    // скачивания до подключения статистики (учтены вручную)
-    var BASE_DOWNLOADS = 3;
+    var BASE_INSTALLS=3;  // установки до подключения счётчика
     function num(n){ try { return Number(n||0).toLocaleString('ru-RU'); } catch(e){ return String(n||0); } }
+    function countOnce(url, apply, attempt){
+      fetch(url,{cache:'no-store'})
+        .then(function(r){return r.ok?r.json():null})
+        .then(function(d){
+          if(!d || typeof d.value==='undefined') throw new Error('нет значения');
+          apply(Number(d.value||0)||0);
+        })
+        .catch(function(){
+          if((attempt||0)<2) setTimeout(function(){countOnce(url,apply,(attempt||0)+1);},1500);
+        });
+    }
     fetch('https://api.github.com/repos/'+REPO+'/releases?per_page=100',{headers:{'Accept':'application/vnd.github+json'}})
       .then(function(r){return r.ok?r.json():null})
       .then(function(list){
         if(!list || !list.length) return;
-        var total=0, setup=0, portable=0, perVersion=[];
+        var total=0, setup=0, perVersion=[];
         list.forEach(function(rel){
           var vTotal=0;
           (rel.assets||[]).forEach(function(a){
             var c=Number(a.download_count||0);
             total+=c; vTotal+=c;
             if(/setup\.exe$/i.test(a.name)) setup+=c;
-            else if(/\.exe$/i.test(a.name)) portable+=c;
           });
           if(vTotal) perVersion.push((rel.tag_name||'').replace(/^v/i,'')+': '+num(vTotal));
         });
-        var base=BASE_DOWNLOADS||0;
-        total+=base; setup+=base;
-        var t=document.getElementById('stat-total'); if(t) t.textContent=num(total);
-        var s=document.getElementById('stat-setup'); if(s) s.textContent=num(setup);
-        var p=document.getElementById('stat-exe'); if(p) p.textContent=num(portable);
-        var h=document.getElementById('dls'); if(h) h.textContent=num(total);
+        var d=document.getElementById('stat-downloads'); if(d) d.textContent=num(total);
         var note=document.getElementById('stat-note');
         if(note){
           var parts=[];
-          if(perVersion.length) parts.push('По версиям — '+perVersion.slice(0,6).join(' · '));
-          if(base) parts.push('включая '+base+' скачивания до подключения счётчика');
+          if(perVersion.length) parts.push('Скачивания по версиям — '+perVersion.slice(0,5).join(' · '));
+          if(setup) parts.push('из них установщиков: '+num(setup));
           note.textContent=parts.join(' · ');
         }
       }).catch(function(){});
+    countOnce('https://abacus.jasoncameron.dev/hit/vleyzlauncher/installs', function(v){
+      var all=BASE_INSTALLS+v;
+      var el=document.getElementById('stat-installs'); if(el) el.textContent=all.toLocaleString('ru-RU');
+      var chip=document.getElementById('dls'); if(chip) chip.textContent=all.toLocaleString('ru-RU');
+    });
   })();
 
   // счётчик посещений: впиши номер счётчика Яндекс.Метрики вместо 0 — скрипт включится сам
