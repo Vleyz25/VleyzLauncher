@@ -461,15 +461,20 @@
     var BASE_VISITS = 5;
     var vEl=document.getElementById('stat-visits');
     if(vEl) vEl.textContent=String(BASE_VISITS);
-    // живой счётчик: каждый заход на сайт сразу прибавляет единицу
-    fetch('https://abacus.jasoncameron.dev/hit/vleyzlauncher/site-visits-v2',{cache:'no-store'})
-      .then(function(r){return r.ok?r.json():null})
-      .then(function(d){
-        if(!d || typeof d.value==='undefined') return;
-        var live=Number(d.value||0)||0;
-        var all=BASE_VISITS+live;
-        if(vEl) vEl.textContent=all.toLocaleString('ru-RU');
-      }).catch(function(){});
+    // живой счётчик: каждый заход на сайт сразу прибавляет единицу.
+    // Сервис бесплатный и иногда отвечает ошибкой — поэтому до трёх попыток.
+    (function ping(attempt){
+      fetch('https://abacus.jasoncameron.dev/hit/vleyzlauncher/site-visits-v2',{cache:'no-store'})
+        .then(function(r){return r.ok?r.json():null})
+        .then(function(d){
+          if(!d || typeof d.value==='undefined') throw new Error('нет значения');
+          var all=BASE_VISITS+(Number(d.value||0)||0);
+          if(vEl) vEl.textContent=all.toLocaleString('ru-RU');
+        })
+        .catch(function(){
+          if(attempt<2) setTimeout(function(){ping(attempt+1);},1500);
+        });
+    })(0);
     if(!METRIKA_ID) return;
     (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
       m[i].l=1*new Date();k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,
