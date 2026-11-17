@@ -420,6 +420,8 @@
   // статистика скачиваний из GitHub (публичный API, без токена)
   (function(){
     var REPO='Vleyz25/VleyzLauncher';
+    // скачивания до подключения статистики (учтены вручную)
+    var BASE_DOWNLOADS = 3;
     function num(n){ try { return Number(n||0).toLocaleString('ru-RU'); } catch(e){ return String(n||0); } }
     fetch('https://api.github.com/repos/'+REPO+'/releases?per_page=100',{headers:{'Accept':'application/vnd.github+json'}})
       .then(function(r){return r.ok?r.json():null})
@@ -436,18 +438,29 @@
           });
           if(vTotal) perVersion.push((rel.tag_name||'').replace(/^v/i,'')+': '+num(vTotal));
         });
+        var base=BASE_DOWNLOADS||0;
+        total+=base; setup+=base;
         var t=document.getElementById('stat-total'); if(t) t.textContent=num(total);
         var s=document.getElementById('stat-setup'); if(s) s.textContent=num(setup);
         var p=document.getElementById('stat-exe'); if(p) p.textContent=num(portable);
         var h=document.getElementById('dls'); if(h) h.textContent=num(total);
         var note=document.getElementById('stat-note');
-        if(note && perVersion.length) note.textContent='По версиям — '+perVersion.slice(0,6).join(' · ');
+        if(note){
+          var parts=[];
+          if(perVersion.length) parts.push('По версиям — '+perVersion.slice(0,6).join(' · '));
+          if(base) parts.push('включая '+base+' скачивания до подключения счётчика');
+          note.textContent=parts.join(' · ');
+        }
       }).catch(function(){});
   })();
 
   // счётчик посещений: впиши номер счётчика Яндекс.Метрики вместо 0 — скрипт включится сам
   (function(){
     var METRIKA_ID = 0;
+    // посещения до подключения Метрики (учтены вручную)
+    var BASE_VISITS = 5;
+    var vEl=document.getElementById('stat-visits');
+    if(vEl) vEl.textContent=String(BASE_VISITS);
     if(!METRIKA_ID) return;
     (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
       m[i].l=1*new Date();k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,
