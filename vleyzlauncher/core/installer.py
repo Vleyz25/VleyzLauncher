@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -17,6 +18,8 @@ from . import loaders, net, versions
 from .paths import human_size, human_speed
 
 WORKERS = 16
+
+_log = logging.getLogger(__name__)
 
 
 class InstallError(Exception):
@@ -130,8 +133,21 @@ class Installer:
     def __init__(self, data_dir: Path, progress: Progress, log=None, cancel: threading.Event | None = None):
         self.data_dir = Path(data_dir)
         self.progress = progress
-        self.log = log or (lambda message: None)
+        self.log = self._wrap_log(log or (lambda message: None))
         self.cancel = cancel or threading.Event()
+
+    @staticmethod
+    def _wrap_log(log):
+        """Дублирует ход установки в файл лога: без этого причину сбоя не видно."""
+
+        def emit(message: str) -> None:
+            _log.info("%s", message)
+            try:
+                log(message)
+            except Exception:  # noqa: BLE001 - интерфейс может уже закрыться
+                pass
+
+        return emit
 
     def _check_cancel(self) -> None:
         if self.cancel.is_set():
@@ -325,9 +341,21 @@ class Installer:
         progress.set_stage(f"Устанавливаю {plan['label']}", "это может занять пару минут")
         self._check_cancel()
 
+        if jar.is_file() and not zipfile.is_zipfile(jar):
+            self.log(f"Установщик {plan['label']} повреждён — качаю заново")
+            try:
+                jar.unlink()
+            except OSError:
+                pass
+
         if not jar.is_file():
             self.log(f"Скачиваю установщик {plan['label']}…")
             net.download(plan["installer_url"], jar, cancel=self.cancel)
+
+        if not zipfile.is_zipfile(jar):
+            raise InstallError(
+                f"Установщик {plan['label']} скачался битым. Проверьте интернет и повторите."
+            )
 
         self._ensure_launcher_profile()
 

@@ -311,3 +311,28 @@ def ensure_session(cfg: dict) -> dict:
     if expires_at - REFRESH_MARGIN <= int(time.time()):
         refresh_account(cfg)
     return session_ready(cfg)
+
+
+def capes(cfg: dict) -> list[dict]:
+    """Активные плащи аккаунта.
+
+    Свои плащи Mojang ставить не даёт: список только читается, загрузить
+    картинку на аккаунт нельзя. Плащ выдаётся за заслуги (Migrator, Mojang,
+    Realms) либо рисуется модами вроде OptiFine и Cosmetica.
+    """
+    session = ensure_session(cfg)
+    token = str(session.get("access_token") or "")
+    if not token:
+        raise AuthError("Нет сохранённого входа Microsoft")
+    status, data = _get_json(MC_PROFILE_URL, {"Authorization": f"Bearer {token}"})
+    if status != 200:
+        raise AuthError("Не удалось прочитать плащи аккаунта")
+    result = []
+    for row in data.get("capes") or []:
+        if not isinstance(row, dict) or row.get("state") != "ACTIVE":
+            continue
+        result.append({
+            "alias": str(row.get("alias") or ""),
+            "url": str(row.get("url") or ""),
+        })
+    return result

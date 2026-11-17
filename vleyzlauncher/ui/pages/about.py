@@ -52,5 +52,11 @@ def draw_page(app: "Launcher") -> None:
               8, theme.DIM, "normal", "w", "page")
     check = CanvasButton(app, CX0 + 28, 580, CX0 + 268, 620, "Проверить обновления",
                          command=lambda: app._check_updates(manual=True), kind="ghost", size=9)
-    app.page_buttons.append(check)
-    draw.text(cv, CX1 - 28, 600, "Сделал vleyz", 9, theme.DIM, "normal", "e", "page")
+    crash = CanvasButton(app, CX0 + 280, 580, CX0 + 460, 620, "Краш-лог",
+                         command=app._open_crash_modal, kind="ghost", size=9)
+    report = CanvasButton(app, CX0 + 472, 580, CX0 + 632, 620, "Отчёт",
+                          command=app._export_diagnostics, kind="ghost", size=9)
+    news = CanvasButton(app, CX0 + 644, 580, CX0 + 844, 620, "Что нового",
+                        command=app._open_news_modal, kind="ghost", size=9)
+    app.page_buttons.extend([check, crash, report, news])
+    draw.text(cv, CX1 - 28, 632, "Сделал vleyz", 9, theme.DIM, "normal", "e", "page")

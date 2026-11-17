@@ -1,21 +1,62 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
 import subprocess
+import sys
+import tempfile
 import threading
 import zipfile
 from pathlib import Path
 
-from . import net, paths
+from . import net, paths, safepath
 
 CREATE_NO_WINDOW = 0x08000000
 ADOPTIUM = "https://api.adoptium.net/v3/assets/latest/{major}/hotspot"
 ADOPTIUM_QUERY = "?architecture=x64&image_type=jre&os=windows&vendor=eclipse"
 JAVA_MIN = 8
+JAVA_MAX = 99  # верхней границы нет: нужную версию выбирает игра
 
 _cache: dict[tuple[int, str], tuple[Path, int] | None] = {}
+log = logging.getLogger(__name__)
+
+
+def windows_version() -> tuple[int, int, int]:
+    """Версия Windows (major, minor, build); на других ОС — нули."""
+    if os.name != "nt" or not hasattr(sys, "getwindowsversion"):
+        return (0, 0, 0)
+    info = sys.getwindowsversion()
+    return (int(info.major), int(info.minor), int(info.build))
+
+
+def is_windows7() -> bool:
+    """Windows 7 / Server 2008 R2: 6.1."""
+    major, minor, _ = windows_version()
+    return (major, minor) == (6, 1)
+
+
+def max_java_major() -> int:
+    """Старшая Java, которую официально поддерживает эта система.
+
+    Adoptium собирает JRE 17+ только под Windows 10 и новее, на Windows 7
+    работает лишь Java 8 — иначе игра падает ещё до окна.
+    """
+    if is_windows7():
+        return 8
+    return JAVA_MAX
+
+
+def check_java_supported(needed: int) -> None:
+    """Проверяет, что нужная Java вообще существует для этой Windows."""
+    needed = int(needed or JAVA_MIN)
+    limit = max_java_major()
+    if needed > limit:
+        raise net.DownloadError(
+            f"Эта версия игры требует Java {needed}, а под Windows 7 выпускается только Java 8. "
+            "Возьми версию игры до 1.17 (1.16.5 и старше) — она запустится на Java 8."
+        )
 
 
 def clear_cache() -> None:
@@ -146,25 +187,49 @@ def _download_url(needed: int) -> tuple[str, str, int]:
 
 
 def _extract(archive: Path, target: Path) -> Path | None:
-    if target.exists():
-        shutil.rmtree(target, ignore_errors=True)
-    target.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(archive) as bundle:
-        members = [info for info in bundle.infolist() if not info.is_dir()]
-        if not members:
-            return None
-        roots = {info.filename.split("/")[0] for info in members}
-        prefix = roots.pop() + "/" if len(roots) == 1 else ""
-        for info in members:
-            name = info.filename
-            if prefix and name.startswith(prefix):
-                name = name[len(prefix):]
-            if not name:
-                continue
-            destination = target / name
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            with bundle.open(info) as source, open(destination, "wb") as handle:
-                shutil.copyfileobj(source, handle)
+    target = Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".java-extract-", dir=target.parent) as folder:
+        staging = Path(folder) / "runtime"
+        staging.mkdir()
+        with zipfile.ZipFile(archive) as bundle:
+            members = [info for info in bundle.infolist() if not info.is_dir()]
+            if not members:
+                return None
+            roots = {info.filename.split("/")[0] for info in members}
+            root = roots.pop() if len(roots) == 1 else ""
+            safe_root = safepath.safe_relative(root) if root else None
+            prefix = (
+                root + "/"
+                if safe_root is not None
+                and len(safe_root.parts) == 1
+                and safe_root.parts[0] == root
+                else ""
+            )
+            report = safepath.extract_zip(
+                bundle,
+                (info.filename for info in members),
+                staging,
+                strip=(prefix,) if prefix else (),
+                max_files=50_000,
+                max_bytes=4 * 1024 ** 3,
+            )
+            if report["skipped"]:
+                log.warning("пропущено небезопасных файлов в архиве Java: %s", report["skipped"])
+                raise safepath.PathError("В архиве Java обнаружены небезопасные пути")
+            if not report["written"]:
+                return None
+
+        backup = Path(folder) / "previous"
+        had_target = target.exists()
+        if had_target:
+            os.replace(target, backup)
+        try:
+            os.replace(staging, target)
+        except OSError:
+            if had_target and backup.exists():
+                os.replace(backup, target)
+            raise
     return target
 
 
@@ -177,6 +242,7 @@ def provision(
     """Скачивает официальную JRE нужной версии с Adoptium и возвращает javaw.exe."""
     log = log or (lambda message: None)
     needed = max(JAVA_MIN, int(needed))
+    check_java_supported(needed)
     root = paths.java_root()
     root.mkdir(parents=True, exist_ok=True)
 
@@ -222,6 +288,7 @@ def ensure_java(
         return found
     if cancel is not None and cancel.is_set():
         raise net.DownloadCancelled()
+    check_java_supported(needed)
     return provision(needed, log=log, cancel=cancel, on_progress=on_progress)
 
 

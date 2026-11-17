@@ -170,7 +170,7 @@ def build_command(
         for extra in loader_extra_jars(vjson, data_dir / "libraries"):
             if str(extra) not in classpath_parts:
                 classpath_parts.append(str(extra))
-    if client_jar not in libraries:
+    if client_jar not in libraries and not module_mode:
         classpath_parts.append(str(client_jar))
 
     natives = natives_dir(data_dir, vjson, version_id)
@@ -249,7 +249,11 @@ def launch(
     logs_dir.mkdir(parents=True, exist_ok=True)
     log_path = logs_dir / f"vleyz-{time.strftime('%Y%m%d-%H%M%S')}.log"
     handle = open(log_path, "w", encoding="utf-8", errors="replace")
-    handle.write(" ".join(command) + "\n\n")
+    logged_command = list(command)
+    access_token = str((session or {}).get("access_token") or "")
+    if access_token:
+        logged_command = [argument.replace(access_token, "***") for argument in command]
+    handle.write(" ".join(logged_command) + "\n\n")
     handle.flush()
     try:
         process = subprocess.Popen(
@@ -263,6 +267,7 @@ def launch(
     except (OSError, ValueError) as exc:
         handle.close()
         raise LaunchError(f"Java не смогла запустить игру: {exc}") from exc
+    handle.close()
     return process, log_path
 
 

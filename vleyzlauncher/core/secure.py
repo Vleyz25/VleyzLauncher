@@ -80,8 +80,8 @@ def protect(value: str) -> str:
     try:
         encrypted = _crypt(value.encode("utf-8"), True)
     except OSError as exc:
-        log.warning("не удалось зашифровать секрет: %s", exc)
-        return value
+        log.error("не удалось зашифровать секрет; открытый текст не будет сохранён")
+        raise OSError("DPAPI не смог зашифровать секрет") from exc
     return PREFIX + base64.b64encode(encrypted).decode("ascii")
 
 

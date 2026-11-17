@@ -21,8 +21,9 @@ _dialog_shown = False
 _SECRET_PATTERNS = (
     (re.compile(r'("(?:access_token|refresh_token|token|password|secret)"\s*:\s*")([^"]+)(")',
                 re.IGNORECASE), r"\1***\3"),
-    (re.compile(r"\b(access_token|refresh_token|token|password|secret)=([^\s&,;]+)",
+    (re.compile(r"\b(access_token|auth_access_token|refresh_token|token|password|secret)=([^\s&,;]+)",
                 re.IGNORECASE), r"\1=***"),
+    (re.compile(r"(--accessToken|--session)\s+([^\s]+)", re.IGNORECASE), r"\1 ***"),
     (re.compile(r"\bBearer\s+([A-Za-z0-9._\-]{8,})"), "Bearer ***"),
 )
 

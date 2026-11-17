@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from . import instances, net, safepath
+from . import instances, mods as mods_core, net, safepath
 
 log = logging.getLogger(__name__)
 
@@ -230,6 +231,13 @@ def install(
         "installed": installed,
         "skipped": skipped,
         "extracted": extracted,
+        "files": sorted({
+            PurePosixPath(str(item.get("path") or "")).name
+            for item in plan["files"]
+            if str(item.get("path") or "").lower().startswith("mods/")
+            and str(item.get("path") or "").lower().endswith(".jar")
+        }),
+        "enabled": True,
     }
     try:
         (target / META_NAME).write_text(
@@ -261,3 +269,118 @@ def installed_packs(data_dir: Path, instance_id: str) -> list[dict]:
         return []
     data["instance"] = instance_id
     return [data]
+
+
+def installed_packs_all(data_dir: Path) -> list[dict]:
+    """Все установленные сборки по инстансам — для вкладки «Установленные»."""
+    root = Path(data_dir)
+    result: list[dict] = []
+    for instance_id in instances.list_instances(root):
+        meta = instances.path(root, instance_id) / META_NAME
+        if not meta.is_file():
+            continue
+        try:
+            data = json.loads(meta.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        result.append({
+            "instance": instance_id,
+            "name": str(data.get("name") or instance_id),
+            "version": str(data.get("version") or ""),
+            "game": str(data.get("game_version") or ""),
+            "loader": str(data.get("loader") or ""),
+            "files": [str(name) for name in (data.get("files") or [])],
+            "enabled": bool(data.get("enabled", True)),
+        })
+    result.sort(key=lambda row: row["name"].casefold())
+    return result
+
+
+def pack_title(data_dir: Path, instance_id: str) -> str:
+    """Название сборки для списка версий; пусто, если это не модпак."""
+    path = instances.path(Path(data_dir), instance_id) / META_NAME
+    if not path.is_file():
+        return ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    name = str(data.get("name") or "")
+    version = str(data.get("version") or "")
+    return f"{name} {version}".strip()
+
+
+def pack_files(data_dir: Path, instance_id: str) -> list[str]:
+    """Какие .jar принадлежат сборке — по мета-файлу её инстанса."""
+    path = instances.path(Path(data_dir), instance_id) / META_NAME
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    return [str(name) for name in (data.get("files") or []) if str(name)]
+
+
+def _update_meta(data_dir: Path, instance_id: str, changes: dict) -> None:
+    path = instances.path(Path(data_dir), instance_id) / META_NAME
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if not isinstance(data, dict):
+        return
+    data.update(changes)
+    try:
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def set_pack_enabled(data_dir: Path, instance_id: str, enabled: bool,
+                     log=None) -> dict:
+    """Включает или отключает сборку целиком: её файлы уходят из mods.
+
+    Отдельные моды, установленные вручную, это не затрагивает.
+    """
+    log = log or (lambda message: None)
+    data_dir = Path(data_dir)
+    files = pack_files(data_dir, instance_id)
+    source = (mods_core.shared_disabled(data_dir) if enabled
+              else mods_core.shared_enabled(data_dir))
+    target = (mods_core.shared_enabled(data_dir) if enabled
+              else mods_core.shared_disabled(data_dir))
+    source.mkdir(parents=True, exist_ok=True)
+    target.mkdir(parents=True, exist_ok=True)
+    moved = 0
+    for name in files:
+        origin = source / name
+        if not origin.is_file():
+            continue
+        destination = target / name
+        if destination.exists():
+            continue
+        try:
+            shutil.move(str(origin), str(destination))
+            moved += 1
+        except OSError:
+            continue
+    _update_meta(data_dir, instance_id, {"enabled": bool(enabled)})
+    state = "включена" if enabled else "отключена"
+    log(f"Сборка {instance_id} {state}: файлов {moved}")
+    return {"enabled": bool(enabled), "moved": moved, "files": len(files)}
+
+
+def pack_owners(data_dir: Path) -> dict[str, str]:
+    """Карта «файл мода → название сборки», которая его поставила."""
+    owners: dict[str, str] = {}
+    for row in installed_packs_all(Path(data_dir)):
+        for name in row.get("files") or []:
+            owners.setdefault(str(name), str(row.get("name") or ""))
+    return owners

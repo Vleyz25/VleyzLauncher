@@ -374,6 +374,7 @@ def _write_nbt_string_named(name: str, value: str) -> bytes:
 
 
 def _write_servers_dat(path: Path, entries: list[dict]) -> None:
+    """Пишет servers.dat несжатым NBT — так его читает игра (CompressedStreamTools.read)."""
     items = bytearray()
     for entry in entries:
         items += _write_nbt_string_named("name", str(entry.get("name") or "Сервер"))
@@ -389,7 +390,9 @@ def _write_servers_dat(path: Path, entries: list[dict]) -> None:
         + bytes(items)
         + b"\x00"                                         # конец корневого Compound
     )
-    path.write_bytes(gzip.compress(payload))
+    temp = path.with_name(path.name + ".tmp")
+    temp.write_bytes(payload)
+    temp.replace(path)
 
 
 def sync_servers_dat(data_dir: Path, cfg: dict) -> None:

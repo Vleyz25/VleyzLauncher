@@ -1,4 +1,6 @@
-# три палитры, переключаются в настройках
+﻿from __future__ import annotations
+
+# С‚СЂРё РїР°Р»РёС‚СЂС‹, РїРµСЂРµРєР»СЋС‡Р°СЋС‚СЃСЏ РІ РЅР°СЃС‚СЂРѕР№РєР°С…
 
 DARK = {
     "BG_TOP": "#0B0C11",
@@ -154,7 +156,7 @@ LIGHT = {
 }
 
 PALETTES = {"dark": DARK, "gray": GRAY, "light": LIGHT}
-TITLES = {"dark": "Тёмная", "gray": "Серая", "light": "Светлая"}
+TITLES = {"dark": "РўС‘РјРЅР°СЏ", "gray": "РЎРµСЂР°СЏ", "light": "РЎРІРµС‚Р»Р°СЏ"}
 
 LOADER_ACCENTS = {
     "dark": {"vanilla": "#4ADE80", "fabric": "#E9D5A1", "forge": "#E07B39", "neoforge": "#C084FC"},
@@ -169,7 +171,7 @@ CURRENT = "dark"
 
 
 def apply(name: str) -> str:
-    """Переключает палитру: значения становятся атрибутами модуля."""
+    """РџРµСЂРµРєР»СЋС‡Р°РµС‚ РїР°Р»РёС‚СЂСѓ: Р·РЅР°С‡РµРЅРёСЏ СЃС‚Р°РЅРѕРІСЏС‚СЃСЏ Р°С‚СЂРёР±СѓС‚Р°РјРё РјРѕРґСѓР»СЏ."""
     global CURRENT
     palette = PALETTES.get(name) or PALETTES["dark"]
     CURRENT = name if name in PALETTES else "dark"

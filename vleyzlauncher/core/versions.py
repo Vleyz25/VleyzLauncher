@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 
@@ -11,6 +12,8 @@ MANIFEST_TTL = 30 * 60
 OS_NAME = "windows"
 ARCH = "x64"
 
+log = logging.getLogger(__name__)
+
 # Плейсхолдеры, которые Mojang подставляет в аргументы
 PLACEHOLDERS = ("${",)
 
@@ -20,15 +23,31 @@ class VersionError(Exception):
 
 
 def manifest(data_dir: Path, force: bool = False) -> dict:
-    """Манифест версий Mojang с кэшем на 30 минут."""
+    """Манифест версий Mojang с кэшем на 30 минут.
+
+    Если сети нет, отдаём последний сохранённый список: без него страница
+    версий выглядит пустой, и кажется, что лаунчер сломан.
+    """
     cache = Path(data_dir) / "versions" / "version_manifest_v2.json"
-    if cache.is_file() and not force:
+    cached: dict | None = None
+    if cache.is_file():
         try:
-            if time.time() - cache.stat().st_mtime < MANIFEST_TTL:
-                return json.loads(cache.read_text(encoding="utf-8"))
+            cached = json.loads(cache.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            pass
-    data = net.fetch_json(MANIFEST_URL)
+            cached = None
+        if cached is not None and not force:
+            try:
+                if time.time() - cache.stat().st_mtime < MANIFEST_TTL:
+                    return cached
+            except OSError:
+                pass
+    try:
+        data = net.fetch_json(MANIFEST_URL)
+    except net.DownloadError:
+        if cached is not None and isinstance(cached.get("versions"), list):
+            log.warning("манифест Mojang недоступен, показываю список из кэша")
+            return cached
+        raise
     try:
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(json.dumps(data), encoding="utf-8")
@@ -124,23 +143,36 @@ def version_meta(data_dir: Path, version_id: str, cancel=None) -> dict:
 # ------------------------------------------------------------------ java
 
 def java_requirement(data_dir: Path, version_id: str, cancel=None) -> int:
-    """Сколько Java нужно версии (справочный кэш, игру не устанавливает)."""
-    try:
-        vjson = version_json(data_dir, version_id)
-    except (FileNotFoundError, ValueError):
+    """Сколько Java нужно версии (справочный кэш, игру не устанавливает).
+
+    У сборок на Forge/Fabric своего `javaVersion` нет: он лежит в родительской
+    версии, на которую указывает `inheritsFrom`. Без этого шага Forge 1.20.1
+    получал «Java 8» и падал с `Unrecognized option: -p`.
+    """
+    seen: set[str] = set()
+    current = str(version_id or "")
+    while current and current not in seen:
+        seen.add(current)
         try:
-            vjson = version_meta(data_dir, version_id, cancel=cancel)
-        except (net.DownloadError, VersionError, OSError, ValueError):
-            return 8
-    return java_requirement_from(vjson)
+            vjson = version_json(data_dir, current)
+        except (FileNotFoundError, ValueError):
+            try:
+                vjson = version_meta(data_dir, current, cancel=cancel)
+            except (net.DownloadError, VersionError, OSError, ValueError):
+                return 8
+        required = java_requirement_from(vjson, default=0)
+        if required:
+            return required
+        current = str(vjson.get("inheritsFrom") or "")
+    return 8
 
 
-def java_requirement_from(vjson: dict) -> int:
+def java_requirement_from(vjson: dict, default: int = 8) -> int:
     required = (vjson.get("javaVersion") or {}).get("majorVersion")
     try:
         return int(required)
     except (TypeError, ValueError):
-        return 8
+        return default
 
 
 # --------------------------------------------------------------- библиотеки
@@ -276,16 +308,31 @@ def assets_dir(data_dir: Path) -> Path:
     return Path(data_dir) / "assets"
 
 
-def releases(data_dir: Path, force: bool = False) -> list[dict]:
-    """Все официальные релизы Mojang, от новых к старым."""
+VERSION_KINDS = {
+    "release": "release",
+    "snapshot": "snapshot",
+    "old_beta": "old",
+    "old_alpha": "old",
+}
+
+
+def kind_of(version: dict) -> str:
+    """release / snapshot / old — для вкладок списка версий."""
+    return VERSION_KINDS.get(str(version.get("type") or ""), "snapshot")
+
+
+def catalogue(data_dir: Path, force: bool = False) -> list[dict]:
+    """Все версии Mojang: релизы, снапшоты и старые, от новых к старым."""
     data = manifest(data_dir, force=force)
-    result = [
-        version
-        for version in data.get("versions", [])
-        if version.get("type") == "release" and version.get("id")
-    ]
+    result = [version for version in data.get("versions", []) if version.get("id")]
     result.sort(key=lambda v: v.get("releaseTime", ""), reverse=True)
     return result
+
+
+def releases(data_dir: Path, force: bool = False) -> list[dict]:
+    """Все официальные релизы Mojang, от новых к старым."""
+    return [version for version in catalogue(data_dir, force=force)
+            if version.get("type") == "release"]
 
 
 def version_date(data_dir: Path, version_id: str) -> str:

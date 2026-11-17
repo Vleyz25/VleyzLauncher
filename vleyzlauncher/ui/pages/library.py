@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...core import instances as instances_core
-from ...core import loaders, paths
+from ...core import loaders, modpacks, paths
 from .. import draw, theme
 from ..layout import CX0, CX1
 from ..widgets import CanvasButton
@@ -47,7 +47,10 @@ def draw_page(app: "Launcher") -> None:
         draw.cube(cv, CX0 + 44, y + 46, 34, accent, tags="page")
         draw.text(cv, CX0 + 80, y + 26, f"Minecraft {item['game']}", 13, theme.TEXT, "bold",
                   "w", "page")
-        draw.text(cv, CX0 + 80, y + 47, f"{item['label']} · {item['id']}", 9, theme.MUTED,
+        pack = modpacks.pack_title(data_dir, vid)
+        subtitle = (f"{pack} · {item['id']}" if pack
+                    else f"{item['label']} · {item['id']}")
+        draw.text(cv, CX0 + 80, y + 47, subtitle, 9, theme.MUTED,
                   "normal", "w", "page")
 
         status_color = theme.ACCENT if (running or selected) else theme.MUTED

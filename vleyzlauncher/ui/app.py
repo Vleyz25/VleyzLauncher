@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import logging
 import os
@@ -18,14 +18,20 @@ from ..core import java as java_core
 from ..core import launch as launch_core
 from ..core import loaders
 from ..core import elyby as elyby_core
+from ..core import diagnostics as diagnostics_core
+from ..core import gigachat as gigachat_core
 from ..core import backups as backups_core
+from ..core import crash as crash_core
 from ..core import instances as instances_core
 from ..core import microsoft as microsoft_core
 from ..core import modpacks as modpacks_core
+from ..core import modlist as modlist_core
 from ..core import mods as mods_core
+from ..core import news as news_core
 from ..core import modrinth as modrinth_core
 from ..core import modupdates as modupdates_core
 from ..core import packs as packs_core
+from ..core import pack_export
 from ..core import paths
 from ..core import profiles as profiles_core
 from ..core import servers as servers_core
@@ -73,6 +79,8 @@ NAV = [
     ("servers", "Серверы"),
     ("library", "Библиотека"),
     ("mods", "Моды"),
+    ("modpacks", "Сборки"),
+    ("builder", "Сборщик"),
     ("settings", "Настройки"),
     ("about", "О лаунчере"),
 ]
@@ -222,7 +230,6 @@ class Launcher(tk.Tk):
         draw.cube(cv, 24, 23, 16, theme.ACCENT, tags="drag")
         draw.text(cv, 40, 23, "VLEYZ", 10, theme.TEXT, "bold", "w", "drag")
         draw.text(cv, 82, 23, "LAUNCHER", 9, theme.DIM, "normal", "w", "drag")
-        draw.text(cv, 156, 23, "официальные файлы Mojang", 8, theme.DIM, "normal", "w", "drag")
 
         self.close_id = draw.rr(cv, W - 60, 10, W - 28, 36, 8, fill=theme.TITLEBAR, outline="", tags="win_close")
         self.min_id = draw.rr(cv, W - 96, 10, W - 64, 36, 8, fill=theme.TITLEBAR, outline="", tags="win_min")
@@ -293,11 +300,12 @@ class Launcher(tk.Tk):
             self._draw_nav_item(key, label, y0, y1)
 
         box_top, box_bottom = H - 108, H - 26
-        draw.rr(cv, 16, box_top, SIDE_W - 16, box_bottom, 14, fill=theme.FIELD, outline=theme.PANEL_BORDER)
+        draw.rr(cv, 16, box_top, SIDE_W - 16, box_bottom, 14, fill=theme.FIELD,
+                outline=theme.PANEL_BORDER)
         draw.cube(cv, 40, box_top + 26, 18, theme.ACCENT)
         draw.text(cv, 60, box_top + 19, "Сделал vleyz", 10, theme.TEXT, "bold")
         draw.text(cv, 60, box_top + 36, f"v{APP_VERSION} · сетевая игра", 8, theme.MUTED)
-        draw.text(cv, 30, box_bottom - 16, "Игра по сети · официальные файлы Mojang", 8, theme.DIM)
+        draw.text(cv, 30, box_top + 64, "официальные файлы Mojang", 8, theme.DIM)
         self._draw_update_badge()
 
     def _draw_update_badge(self) -> None:
@@ -489,6 +497,15 @@ class Launcher(tk.Tk):
                                     outline=color, width=1.4, tags=(tag,))
                 cv.create_oval(x + 3, y + dy - 1.5, x + 6, y + dy + 1.5,
                                fill=color, outline="", tags=(tag,))
+        elif key == "builder":
+            for index, width in enumerate((5, 9, 13)):
+                cv.create_rectangle(x - width / 2, y - 6 + index * 5,
+                                    x + width / 2, y - 3 + index * 5,
+                                    fill=color, outline="", tags=(tag,))
+        elif key == "modpacks":
+            for dx, dy in ((-6, 4), (-2, 0), (2, -4)):
+                cv.create_rectangle(x + dx - 5, y + dy - 5, x + dx + 5, y + dy + 5,
+                                    outline=color, width=1.2, tags=(tag,))
         else:
             cv.create_oval(x - 7, y - 7, x + 7, y + 7, outline=color, width=1.4, tags=(tag,))
             cv.create_text(x, y, text="i", fill=color, font=(theme.FONT_SEMI, 8), tags=(tag,))
@@ -554,7 +571,8 @@ class Launcher(tk.Tk):
     # ---------------------------------------------------------------- страницы
 
     def _show_page(self, key):
-        if self.modal:
+        keep_modal = bool(self.modal) and key == self.page
+        if self.modal and not keep_modal:
             self._close_modal(rebuild=False)
         self.page = key
         self.canvas.delete("page")
@@ -564,22 +582,59 @@ class Launcher(tk.Tk):
         self.page_buttons: list[CanvasButton] = []
         self._refresh_nav()
         self._scan_installed()
-        if pages.draw(key, self):
-            return
-        if key == "home":
-            self._draw_home()
-        elif key == "play":
-            self._draw_play()
-        elif key == "servers":
-            self._draw_servers()
-        elif key == "library":
-            self._draw_library()
-        elif key == "mods":
-            self._draw_mods()
-        elif key == "settings":
-            self._draw_settings()
-        else:
-            self._draw_home()
+        if not pages.draw(key, self):
+            if key == "home":
+                self._draw_home()
+            elif key == "play":
+                self._draw_play()
+            elif key == "servers":
+                self._draw_servers()
+            elif key == "library":
+                self._draw_library()
+            elif key == "mods":
+                self._draw_mods()
+            elif key == "settings":
+                self._draw_settings()
+            else:
+                self._draw_home()
+        if keep_modal:
+            self._draw_modal()
+
+    def _show_page_modpacks(self) -> None:
+        """Кнопка «Сборки» на странице модов: переход в раздел сборок."""
+        self._show_page("modpacks")
+
+    def _switch_mods_view(self, view: str) -> None:
+        """Переключатель «Каталог / Установленные» на странице модов."""
+        self.mods_view = view
+        self._show_page("mods")
+
+    def _activate_loader_instance(self) -> bool:
+        """Если выбрана ваниль, переключает на сборку с загрузчиком."""
+        if self.installed_id and self.loader in ("fabric", "forge", "neoforge"):
+            return True
+        rows = loaders.installed_versions(self._data_dir())
+        same_game = [row for row in rows
+                     if row["loader"] in ("fabric", "forge", "neoforge")
+                     and row["game"] == self.game]
+        others = [row for row in rows
+                  if row["loader"] in ("fabric", "forge", "neoforge")]
+        candidates = same_game or others
+        if not candidates:
+            return False
+        row = candidates[0]
+        self.game = str(row["game"])
+        self.loader = str(row["loader"])
+        self.installed_id = str(row["id"])
+        self.installed_size = int(row.get("size") or 0)
+        self.cfg["selected_version"] = self.game
+        self.cfg["selected_loader"] = self.loader
+        try:
+            paths.save_config(self.cfg)
+        except OSError:
+            pass
+        self._push_log(f"Переключил на сборку с загрузчиком: {row['id']}")
+        return True
 
     def _header(self, title, subtitle):
         draw.text(self.canvas, CX0, 74, title, 20, theme.TEXT, "bold", "w", "page")
@@ -606,11 +661,22 @@ class Launcher(tk.Tk):
         self.installed_map = {}
         self.installed_id = None
         self.installed_size = 0
+        self.loader_instance_id = ""
+        with_loader = [row for row in rows
+                       if row["loader"] in ("fabric", "forge", "neoforge")]
+        same_game = [row for row in with_loader if row["game"] == self.game]
+        if same_game or with_loader:
+            self.loader_instance_id = (same_game or with_loader)[0]["id"]
         for row in rows:
             self.installed_map.setdefault(row["game"], set()).add(row["loader"])
             if row["game"] == self.game and row["loader"] == self.loader:
                 self.installed_id = row["id"]
                 self.installed_size = row["size"]
+        if self.installed_id:
+            try:
+                mods_core.ensure_shared(self._data_dir(), self.installed_id)
+            except OSError:
+                pass
 
     def _choice(self, loader_id: str) -> dict:
         return self.choices.get(loader_id) or {}
@@ -686,7 +752,8 @@ class Launcher(tk.Tk):
     # ------------------------------------------------------------- страница игра
 
     def _draw_play(self):
-        self._header("Версии Minecraft", "Все релизы Mojang · выберите версию и загрузчик справа")
+        self._header("Версии Minecraft",
+                     "Релизы, снапшоты и старые версии Mojang · выберите версию справа")
         self._draw_search_row()
         self._draw_grid()
         self._draw_right_panel()
@@ -709,26 +776,39 @@ class Launcher(tk.Tk):
                 pass
         draw.text(cv, CX0 + 202, (SEARCH_Y0 + SEARCH_Y1) / 2, "id версии", 8, theme.DIM, "normal", "w", tag)
 
+        tabs = (("release", "Релизы"), ("snapshot", "Снапшоты"), ("old", "Старые"))
+        tab_x = CX0 + 316
+        for key, label in tabs:
+            active = getattr(self, "version_type", "release") == key
+            button = CanvasButton(self, tab_x, 119, tab_x + 100, 149, label,
+                                  command=lambda k=key: self._set_version_type(k),
+                                  kind="primary" if active else "ghost", size=8)
+            self.page_buttons.append(button)
+            tab_x += 108
+
         found = len(self._filtered())
-        total = len(self.releases or [])
+        total = sum(1 for version in (self.releases or [])
+                    if version_core.kind_of(version)
+                    == getattr(self, "version_type", "release"))
         if self.releases_loading:
-            info = "загружаю список версий…"
+            info = "загружаю…"
         elif self.releases_error:
             info = self.releases_error
         elif self.query:
-            info = f"найдено {found} из {total}"
+            info = f"{found} из {total}"
         else:
-            info = f"{total} релизов"
-        draw.text(cv, CX0 + 316, (SEARCH_Y0 + SEARCH_Y1) / 2, info, 8, theme.MUTED, "normal", "w", tag)
+            info = f"{total} версий"
+        draw.text(cv, CX0 + 648, (SEARCH_Y0 + SEARCH_Y1) / 2, info[:16], 8, theme.MUTED,
+                  "normal", "w", tag)
 
         pages = max(1, (found + PAGE_SIZE - 1) // PAGE_SIZE)
-        prev = CanvasButton(self, 736, 119, 770, 149, "←", command=lambda: self._grid_go(-1),
+        prev = CanvasButton(self, CX0, 690, CX0 + 40, 716, "←", command=lambda: self._grid_go(-1),
                             kind="ghost", size=9, enabled=self.grid_page > 0)
-        nxt = CanvasButton(self, 830, 119, 864, 149, "→", command=lambda: self._grid_go(1),
+        nxt = CanvasButton(self, CX0 + 48, 690, CX0 + 88, 716, "→", command=lambda: self._grid_go(1),
                            kind="ghost", size=9, enabled=self.grid_page < pages - 1)
         self.page_buttons.extend([prev, nxt])
-        draw.text(cv, 783, (SEARCH_Y0 + SEARCH_Y1) / 2, f"{self.grid_page + 1} / {pages}", 8,
-                  theme.MUTED, "normal", "center", tag)
+        draw.text(cv, CX0 + 100, 703, f"{self.grid_page + 1} / {pages}", 8,
+                  theme.MUTED, "normal", "w", tag)
 
     def _draw_grid(self):
         cv = self.canvas
@@ -737,6 +817,18 @@ class Launcher(tk.Tk):
         self.grid_page = min(self.grid_page, pages - 1)
         chunk = items[self.grid_page * PAGE_SIZE:(self.grid_page + 1) * PAGE_SIZE]
 
+        if self.releases_error:
+            draw.text(cv, CX0, GRID_TOP + 24, "Не удалось получить список версий Mojang",
+                      11, theme.TEXT, "bold", "w", "page")
+            draw.text(cv, CX0, GRID_TOP + 50,
+                      "Проверьте интернет, прокси или файрвол и нажмите «Повторить». "
+                      "Если список уже загружался раньше, он берётся из кэша.",
+                      8, theme.MUTED, "normal", "w", "page", width=560)
+            retry = CanvasButton(self, CX0, GRID_TOP + 96, CX0 + 160, GRID_TOP + 136,
+                                 "Повторить", command=self._load_releases,
+                                 kind="primary", size=9)
+            self.page_buttons.append(retry)
+            return
         if self.releases_loading:
             draw.text(cv, CX0, GRID_TOP + 40, "Загружаю официальный список версий…", 10,
                       theme.MUTED, "normal", "w", "page")
@@ -772,10 +864,18 @@ class Launcher(tk.Tk):
 
     def _filtered(self) -> list[dict]:
         items = self.releases or []
+        kind = getattr(self, "version_type", "release")
+        if kind != "all":
+            items = [version for version in items if version_core.kind_of(version) == kind]
         query = self.query.strip().lower()
         if not query:
             return items
         return [version for version in items if query in str(version.get("id", "")).lower()]
+
+    def _set_version_type(self, key: str) -> None:
+        self.version_type = key
+        self.grid_page = 0
+        self._show_page("play")
 
     def _on_search(self, _event=None):
         entry = self.entries.get("search")
@@ -1067,7 +1167,7 @@ class Launcher(tk.Tk):
         self.modal_buttons = []
         for name in ("modal_name", "modal_nick", "modal_srv_name", "modal_srv_addr",
                      "ely_login", "ely_password", "ely_totp", "mr_query", "pk_query",
-                     "skin_nick"):
+                     "skin_nick", "skin_url", "gc_id", "gc_secret", "gc_model"):
             entry = self.entries.get(name)
             if entry is not None:
                 entry.place_forget()
@@ -1096,6 +1196,8 @@ class Launcher(tk.Tk):
             button.destroy()
         self.modal_buttons = []
         px0, px1, py0, py1 = 330, 850, 150, 574
+        if self.modal == "skin":
+            px0, px1, py0, py1 = 300, 880, 90, 634
         cv.create_rectangle(0, 0, W, H, fill=theme.OVERLAY, outline="", stipple="gray50",
                             tags=("modal", "modal_bg"))
         cv.tag_bind("modal_bg", "<Button-1>", lambda e: self._close_modal())
@@ -1108,6 +1210,16 @@ class Launcher(tk.Tk):
             self._draw_account(px0, px1, py0, py1)
         elif self.modal == "modrinth":
             self._draw_modrinth(px0, px1, py0, py1)
+        elif self.modal == "catalog":
+            pages.draw_detail(self, px0, px1, py0, py1)
+        elif self.modal == "gigachat":
+            self._draw_gigachat(px0, px1, py0, py1)
+        elif self.modal == "crash":
+            self._draw_crash(px0, px1, py0, py1)
+        elif self.modal == "modpack":
+            pages.draw_pack_detail(self, px0, px1, py0, py1)
+        elif self.modal == "news":
+            self._draw_news(px0, px1, py0, py1)
         elif self.modal == "packs":
             self._draw_packs(px0, px1, py0, py1)
         elif self.modal == "updates":
@@ -1879,35 +1991,52 @@ class Launcher(tk.Tk):
         if instance_id:
             try:
                 instances_core.ensure(data_dir, instance_id)
+                mods_core.ensure_shared(data_dir, instance_id)
             except OSError:
                 pass
-        items = mods_core.list_mods(data_dir, instance_id) if instance_id else []
+        items = mods_core.list_mods(data_dir, instance_id)
+        owners = modpacks_core.pack_owners(data_dir)
+        pack_items = [item for item in items if item["name"] in owners]
+        items = [item for item in items if item["name"] not in owners]
         self._mods_signature = mods_core.signature(items)
         enabled_count = sum(1 for item in items if item["enabled"])
-        self._header("Моды", f"Включено {enabled_count} из {len(items)} · файлы .jar из папки mods")
+        extra = f" · из сборок: {len(pack_items)}" if pack_items else ""
+        self._header("Моды", f"Включено {enabled_count} из {len(items)} · "
+                             f"свои моды{extra}")
+
+        catalog_btn = CanvasButton(self, CX1 - 244, 66, CX1 - 128, 96, "Каталог",
+                                   command=lambda: self._switch_mods_view("catalog"),
+                                   kind="ghost", size=8)
+        installed_btn = CanvasButton(self, CX1 - 120, 66, CX1 - 4, 96, "Установленные",
+                                     command=lambda: self._switch_mods_view("installed"),
+                                     kind="primary", size=8)
+        self.page_buttons.extend([catalog_btn, installed_btn])
 
         draw.rr(cv, CX0, 116, CX1, 158, 12, fill=theme.CARD, outline=theme.BORDER, tags="page")
         draw.text(cv, CX0 + 18, 132, "Папка модов", 8, theme.DIM, "normal", "w", "page")
-        hint = mods_core.folder_hint(data_dir, instance_id) if instance_id else "—"
+        hint = str(mods_core.shared_enabled(data_dir))
         draw.text(cv, CX0 + 18, 147, hint[:80], 8, theme.MUTED,
                   "normal", "w", "page")
 
         tools = [
             ("Modrinth", self._open_modrinth_modal, "primary",
              bool(instance_id and instance_loader != "vanilla")),
-            ("Сборка", self._import_modpack, "ghost", bool(instance_id)),
+            ("Сборки", self._show_page_modpacks, "ghost", True),
+            ("Импорт", self._import_modpack, "ghost", bool(instance_id)),
             ("Обновления", self._open_updates_modal, "ghost",
              bool(instance_id and instance_loader != "vanilla")),
             ("Паки", self._open_packs_modal, "ghost", bool(instance_id)),
             ("Бэкапы", self._open_backups_modal, "ghost", bool(instance_id)),
             ("Добавить", self._add_mods, "ghost", bool(instance_id)),
+            ("Экспорт", self._export_mods, "ghost", bool(instance_id)),
+            ("Конфиги", self._open_configs, "ghost", bool(instance_id)),
         ]
         tool_x = CX0
         for title, command, kind, enabled in tools:
-            button = CanvasButton(self, tool_x, 166, tool_x + 136, 198, title,
+            button = CanvasButton(self, tool_x, 166, tool_x + 88, 198, title,
                                   command=command, kind=kind, size=8, enabled=enabled)
             self.page_buttons.append(button)
-            tool_x += 144
+            tool_x += 94
 
         y = 212
         if not instance_id:
@@ -1915,7 +2044,7 @@ class Launcher(tk.Tk):
             draw.text(cv, CX0 + 28, y + 36, "Сначала установите версию с загрузчиком.",
                       12, theme.TEXT, "bold", "w", "page")
             draw.text(cv, CX0 + 28, y + 64,
-                      "У каждой сборки своя папка mods, saves и config. Выберите установленную "
+                      "Все моды лежат в общей папке mods в корне. Выберите установленную "
                       "версию на странице «Библиотека».",
                       8, theme.MUTED, "normal", "w", "page")
             return
@@ -1928,16 +2057,35 @@ class Launcher(tk.Tk):
                       8, theme.WARNING, "normal", "w", "page")
             y += 50
 
+        issues = diagnostics_core.instance_issues(self.cfg, instance_id, items)
+        if issues:
+            draw.rr(cv, CX0, y, CX1, y + 38, 10, fill=theme.WARNING_BG,
+                    outline=theme.WARNING_BORDER, tags="page")
+            draw.text(cv, CX0 + 16, y + 19, str(issues[0])[:104], 8, theme.WARNING,
+                      "normal", "w", "page")
+            y += 50
+
         if not items:
             draw.rr(cv, CX0, y, CX1, y + 112, 16, fill=theme.CARD, outline=theme.BORDER, tags="page")
-            draw.text(cv, CX0 + 28, y + 36, "Модов пока нет", 12, theme.TEXT, "bold", "w", "page")
-            draw.text(cv, CX0 + 28, y + 62,
-                      "Нажмите «Добавить» — откроется папка mods. Перекиньте туда .jar и вернитесь: "
-                      "список обновится сам.",
-                      8, theme.MUTED, "normal", "w", "page")
-            draw.text(cv, CX0 + 28, y + 86,
-                      "Моды работают только с загрузчиком и только для подходящей версии игры.",
-                      8, theme.DIM, "normal", "w", "page")
+            if pack_items:
+                draw.text(cv, CX0 + 28, y + 36, "Своих модов нет", 12, theme.TEXT, "bold",
+                          "w", "page")
+                draw.text(cv, CX0 + 28, y + 62,
+                          f"Файлы сборок ({len(pack_items)}) включаются и отключаются целиком "
+                          "в разделе «Сборки» → «Установленные».",
+                          8, theme.MUTED, "normal", "w", "page")
+                draw.text(cv, CX0 + 28, y + 86,
+                          "Сюда попадут только моды, установленные по одному через каталог.",
+                          8, theme.DIM, "normal", "w", "page")
+            else:
+                draw.text(cv, CX0 + 28, y + 36, "Модов пока нет", 12, theme.TEXT, "bold", "w", "page")
+                draw.text(cv, CX0 + 28, y + 62,
+                          "Нажмите «Добавить» — откроется папка mods. Перекиньте туда .jar и вернитесь: "
+                          "список обновится сам.",
+                          8, theme.MUTED, "normal", "w", "page")
+                draw.text(cv, CX0 + 28, y + 86,
+                          "Моды работают только с загрузчиком и только для подходящей версии игры.",
+                          8, theme.DIM, "normal", "w", "page")
             return
 
         per_page = 4
@@ -2006,6 +2154,65 @@ class Launcher(tk.Tk):
         except OSError:
             self._push_log("Проводник не открылся")
         self._push_log("Скопируйте .jar в папку mods — список обновится сам")
+
+    def _export_mods(self) -> None:
+        if not self.installed_id:
+            self._push_log("Сначала выберите сборку.")
+            return
+        chosen = filedialog.asksaveasfilename(
+            title=i18n.tr("Экспорт списка модов"),
+            defaultextension=".txt",
+            initialfile=f"mods-{self.installed_id}.txt",
+            filetypes=[(i18n.tr("Текст"), "*.txt"), ("JSON", "*.json"),
+                       ("Modrinth pack", "*.mrpack")],
+        )
+        if not chosen:
+            return
+        target = Path(chosen)
+        if target.suffix.lower() == ".mrpack":
+            self._export_pack(target)
+            return
+        try:
+            if target.suffix.lower() == ".json":
+                saved = modlist_core.export_json(self._data_dir(), self.installed_id, target)
+            else:
+                saved = modlist_core.export_text(self._data_dir(), self.installed_id, target)
+            self._push_log(f"Список модов сохранён: {saved}")
+        except OSError as exc:
+            self._push_log(f"Не удалось сохранить список: {exc}")
+
+    def _export_pack(self, target: Path) -> None:
+        """Сборка .mrpack идёт в фоне: на каждый jar нужен запрос к Modrinth."""
+        if not self.installed_id:
+            return
+        data_dir = self._data_dir()
+        instance_id = self.installed_id
+        game, loader = self._instance_meta()
+        self._push_log("Собираю .mrpack…")
+
+        def work() -> None:
+            try:
+                result = pack_export.export(data_dir, instance_id, target, game, loader,
+                                            log=self._push_log_threadsafe)
+                self._push_log_threadsafe(
+                    f"Модпак сохранён: {result['path']} · файлов {result['files']}, "
+                    f"overrides {result['overrides']}")
+            except Exception as exc:  # noqa: BLE001 - показываем причину
+                self._push_log_threadsafe(f"Модпак не собрался: {exc}")
+
+        threading.Thread(target=work, daemon=True, name="pack-export").start()
+
+    def _open_configs(self) -> None:
+        if not self.installed_id:
+            self._push_log("Сначала выберите сборку.")
+            return
+        folder = instances_core.path(self._data_dir(), self.installed_id) / "config"
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(folder))  # noqa: S606 - открытие проводника
+            self._push_log(f"Конфиги сборки: {folder}")
+        except OSError as exc:
+            self._push_log(f"Папка конфигов не открылась: {exc}")
 
     # --------------------------------------------------------- Modrinth
 
@@ -2416,7 +2623,7 @@ class Launcher(tk.Tk):
                       8, theme.DIM, "normal", "w", "modal")
 
         results = self._packs.get("results") or []
-        per_page = 3
+        per_page = 2
         pages = max(1, (len(results) + per_page - 1) // per_page)
         self._packs["page"] = min(int(self._packs.get("page") or 0), pages - 1)
         chunk = results[self._packs["page"] * per_page:(self._packs["page"] + 1) * per_page]
@@ -2678,59 +2885,141 @@ class Launcher(tk.Tk):
         if isinstance(profile, dict):
             nick = str(profile.get("nickname") or "")
         nick = nick or str(self.cfg.get("nickname") or "")
-        self._skin = {"nick": nick, "busy": False, "error": "", "path": None, "image": None}
+        self._skin = {
+            "nick": nick, "url": "", "busy": False, "error": "", "status": "",
+            "path": None, "image": None, "variant": "classic",
+            "capes": [], "capes_loading": False,
+        }
         self._draw_modal()
         if nick:
             self._skin_load(nick)
+        self._skin_load_capes()
 
     def _draw_skin(self, px0, px1, py0, py1) -> None:
         cv = self.canvas
-        draw.text(cv, px0 + 28, py0 + 34, "Скин", 14, theme.TEXT, "bold", "w", "modal")
-        draw.text(cv, px0 + 28, py0 + 56, "Превью по нику и сохранение картинки",
+        draw.text(cv, px0 + 28, py0 + 30, "Скин и плащ", 14, theme.TEXT, "bold", "w", "modal")
+        draw.text(cv, px0 + 28, py0 + 54,
+                  "По нику, по ссылке с сайта скинов или из файла — скин можно поставить "
+                  "на аккаунт.",
                   8, theme.MUTED, "normal", "w", "modal")
-        close = CanvasButton(self, px1 - 62, py0 + 20, px1 - 24, py0 + 52, "×",
+        close = CanvasButton(self, px1 - 62, py0 + 18, px1 - 24, py0 + 50, "×",
                              command=self._close_modal, kind="ghost", size=12)
         self.modal_buttons.append(close)
 
-        field_y = py0 + 76
-        draw.rr(cv, px0 + 28, field_y, px1 - 150, field_y + 36, 10, fill=theme.FIELD,
+        left, right = px0 + 28, px1 - 170
+        nick_y = py0 + 82
+        draw.text(cv, left, nick_y - 12, "Ник игрока", 8, theme.DIM, "normal", "w", "modal")
+        draw.rr(cv, left, nick_y, right, nick_y + 38, 10, fill=theme.FIELD,
                 outline=theme.BORDER, tags="modal")
         self.entries.get("skin_nick") or self._entry("skin_nick", str(self._skin.get("nick") or ""))
-        self._place_entry("skin_nick", px0 + 28, field_y, px1 - px0 - 178, 36)
-        entry = self.entries["skin_nick"]
-        entry.bind("<Return>", lambda _e: self._skin_search())
-        show = CanvasButton(self, px1 - 138, field_y, px1 - 28, field_y + 36, "Показать",
+        self._place_entry("skin_nick", left, nick_y, right - left, 38)
+        self.entries["skin_nick"].bind("<Return>", lambda _e: self._skin_search())
+        show = CanvasButton(self, px1 - 158, nick_y, px1 - 28, nick_y + 38, "Показать",
                             command=self._skin_search, kind="primary", size=9,
                             enabled=not self._skin["busy"])
         self.modal_buttons.append(show)
 
-        status_y = field_y + 52
-        if self._skin["error"]:
-            draw.text(cv, px0 + 28, status_y, str(self._skin["error"])[:88], 8,
-                      theme.DANGER, "normal", "w", "modal")
-        elif self._skin["busy"]:
-            draw.text(cv, px0 + 28, status_y, "Загружаю…", 8, theme.MUTED, "normal",
-                      "w", "modal")
+        url_y = nick_y + 62
+        draw.text(cv, left, url_y - 12, "Ссылка на PNG с сайта скинов", 8, theme.DIM,
+                  "normal", "w", "modal")
+        draw.rr(cv, left, url_y, right, url_y + 38, 10, fill=theme.FIELD,
+                outline=theme.BORDER, tags="modal")
+        self.entries.get("skin_url") or self._entry("skin_url", str(self._skin.get("url") or ""))
+        self._place_entry("skin_url", left, url_y, right - left, 38)
+        self.entries["skin_url"].bind("<Return>", lambda _e: self._skin_from_url())
+        take = CanvasButton(self, px1 - 158, url_y, px1 - 28, url_y + 38, "Взять по ссылке",
+                            command=self._skin_from_url, kind="ghost", size=9,
+                            enabled=not self._skin["busy"])
+        self.modal_buttons.append(take)
+
+        status_y = url_y + 48
+        message = str(self._skin.get("error") or self._skin.get("status") or "")
+        if self._skin["busy"]:
+            draw.text(cv, left, status_y, "Загружаю…", 8, theme.MUTED, "normal", "w", "modal")
+        elif message:
+            colour = theme.DANGER if self._skin.get("error") else theme.ACCENT
+            draw.text(cv, left, status_y, message[:96], 8, colour, "normal", "w", "modal")
         else:
-            draw.text(cv, px0 + 28, status_y, "Ник — латиница, цифры и подчёркивание.",
+            draw.text(cv, left, status_y, "Ник — латиница, цифры и подчёркивание.",
                       8, theme.DIM, "normal", "w", "modal")
 
+        chips_y = status_y + 16
+        for index, (key, title) in enumerate((("classic", "Classic 4px"), ("slim", "Slim 3px"))):
+            bx = left + index * 112
+            active = str(self._skin.get("variant")) == key
+            chip = CanvasButton(self, bx, chips_y, bx + 104, chips_y + 26, title,
+                                command=lambda k=key: self._skin_variant(k),
+                                kind="primary" if active else "ghost", size=8,
+                                enabled=not active)
+            self.modal_buttons.append(chip)
+        draw.text(cv, left + 232, chips_y + 13, "формат рук при загрузке", 8, theme.DIM,
+                  "normal", "w", "modal")
+
+        box_top, box_bottom = chips_y + 40, py1 - 136
+        draw.rr(cv, left, box_top, px1 - 28, box_bottom, 14, fill=theme.CARD,
+                outline=theme.BORDER, tags="modal")
         image = self._skin.get("image")
         if image is not None:
-            cv.create_image((px0 + px1) / 2, py0 + 260, image=image, tags=("modal", "skin_img"))
+            cv.create_image((left + px1 - 28) / 2, (box_top + box_bottom) / 2,
+                            image=image, tags=("modal", "skin_img"))
         else:
-            draw.rr(cv, px0 + 28, py0 + 190, px1 - 28, py0 + 330, 14, fill=theme.CARD,
-                    outline=theme.BORDER, tags="modal")
-            draw.text(cv, (px0 + px1) / 2, py0 + 260, "Здесь появится голова скина",
-                      9, theme.DIM, "normal", "center", "modal")
+            draw.text(cv, (left + px1 - 28) / 2, (box_top + box_bottom) / 2,
+                      "Здесь появится скин", 9, theme.DIM, "normal", "center", "modal")
 
-        save = CanvasButton(self, px0 + 24, py1 - 56, px0 + 204, py1 - 20,
-                            "Сохранить PNG", command=self._skin_save, kind="ghost",
+        draw.text(cv, left, py1 - 124, self._cape_line(), 8, theme.MUTED,
+                  "normal", "w", "modal")
+        draw.text(cv, left, py1 - 110,
+                  "Свой плащ поставить нельзя: Mojang такого не даёт — плащи рисуют моды.",
+                  8, theme.DIM, "normal", "w", "modal")
+
+        save = CanvasButton(self, left, py1 - 96, left + 160, py1 - 60,
+                            "Скачать PNG", command=self._skin_save, kind="ghost",
                             size=9, enabled=bool(self._skin.get("path")))
-        folder = CanvasButton(self, px0 + 214, py1 - 56, px0 + 394, py1 - 20,
+        from_file = CanvasButton(self, left + 172, py1 - 96, left + 332, py1 - 60,
+                                 "Из файла…", command=self._skin_from_file, kind="ghost",
+                                 size=9, enabled=not self._skin["busy"])
+        folder = CanvasButton(self, left + 344, py1 - 96, left + 504, py1 - 60,
                               "Открыть папку", command=self._skin_folder, kind="ghost",
                               size=9)
-        self.modal_buttons.extend([save, folder])
+        self.modal_buttons.extend([save, from_file, folder])
+
+        apply = CanvasButton(self, left, py1 - 52, left + 360, py1 - 16,
+                             "Поставить на аккаунт", command=self._skin_apply,
+                             kind="primary", size=10,
+                             enabled=bool(self._skin.get("path")) and not self._skin["busy"])
+        capes = CanvasButton(self, left + 372, py1 - 52, px1 - 28, py1 - 16,
+                             "Моды с плащами", command=self._skin_open_capes, kind="ghost",
+                             size=9)
+        self.modal_buttons.extend([apply, capes])
+
+    def _cape_line(self) -> str:
+        if not microsoft_core.connected(self.cfg):
+            return "Плащи: войдите в Microsoft, чтобы увидеть плащ аккаунта."
+        if self._skin.get("capes_loading"):
+            return "Плащи: проверяю аккаунт…"
+        rows = self._skin.get("capes") or []
+        if not rows:
+            return "Плащей у аккаунта нет: Mojang выдаёт их за заслуги."
+        names = ", ".join(str(row.get("alias") or "cape") for row in rows[:3])
+        return f"Плащ аккаунта: {names}"
+
+    def _skin_photo(self, path, limit: int = 180):
+        """Картинка под размер рамки: крупную уменьшаем, мелкую увеличиваем."""
+        try:
+            image = tk.PhotoImage(file=str(path))
+        except tk.TclError:
+            return None
+        longest = max(image.width() or 1, image.height() or 1)
+        if longest > limit:
+            factor = max(1, round(longest / limit))
+            image = image.subsample(factor, factor)
+        elif longest < 96:
+            image = image.zoom(2, 2)
+        return image
+
+    def _skin_variant(self, key: str) -> None:
+        self._skin.update(variant="slim" if key == "slim" else "classic")
+        self._draw_modal()
 
     def _skin_search(self) -> None:
         entry = self.entries.get("skin_nick")
@@ -2740,18 +3029,17 @@ class Launcher(tk.Tk):
     def _skin_load(self, nick: str) -> None:
         if self._skin["busy"]:
             return
-        self._skin.update(nick=nick, busy=True, error="")
+        self._skin.update(nick=nick, busy=True, error="", status="")
         self._draw_modal()
         data_dir = self._data_dir()
 
         def work() -> None:
             try:
-                path = skins_core.head(data_dir, nick, 192)
-                image = None
                 try:
-                    image = tk.PhotoImage(file=str(path))
-                except tk.TclError:
-                    image = None
+                    path = skins_core.body(data_dir, nick, 150)
+                except skins_core.SkinError:
+                    path = skins_core.head(data_dir, nick, 150)
+                image = self._skin_photo(path, 150)
                 error = "" if image is not None else "Картинка не открылась"
             except Exception as exc:  # noqa: BLE001 - показываем пользователю
                 path, image, error = None, None, str(exc)
@@ -2759,6 +3047,118 @@ class Launcher(tk.Tk):
             self._post(lambda: self._draw_modal() if self.modal == "skin" else None)
 
         threading.Thread(target=work, daemon=True, name="skin-load").start()
+
+    def _skin_from_url(self) -> None:
+        entry = self.entries.get("skin_url")
+        url = entry.get().strip() if entry is not None else str(self._skin.get("url") or "")
+        if not url:
+            self._skin.update(error="Вставьте ссылку на PNG", status="")
+            self._draw_modal()
+            return
+        if self._skin["busy"]:
+            return
+        self._skin.update(url=url, busy=True, error="", status="")
+        self._draw_modal()
+        data_dir = self._data_dir()
+
+        def work() -> None:
+            try:
+                path = skins_core.from_url(data_dir, url)
+                image = self._skin_photo(path, 160)
+                error = "" if image is not None else "Картинка не открылась"
+                status = "Скин скачан и проверен: 64×64" if not error else ""
+            except Exception as exc:  # noqa: BLE001 - показываем пользователю
+                path, image, error, status = None, None, str(exc), ""
+            self._skin.update(busy=False, path=path, image=image, error=error, status=status)
+            self._post(lambda: self._draw_modal() if self.modal == "skin" else None)
+
+        threading.Thread(target=work, daemon=True, name="skin-url").start()
+
+    def _skin_from_file(self) -> None:
+        chosen = filedialog.askopenfilename(
+            title="Выбрать скин", filetypes=[("PNG", "*.png")]
+        )
+        if not chosen:
+            return
+        try:
+            path = skins_core.from_file(Path(chosen), self._data_dir())
+            image = self._skin_photo(path, 160)
+        except skins_core.SkinError as exc:
+            self._skin.update(path=None, image=None, error=str(exc), status="")
+        else:
+            self._skin.update(path=path, image=image, error="",
+                              status="Скин из файла готов к загрузке")
+        self._draw_modal()
+
+    def _skin_apply(self) -> None:
+        source = self._skin.get("path")
+        if not source:
+            self._skin.update(error="Сначала выберите скин", status="")
+            self._draw_modal()
+            return
+        if not microsoft_core.connected(self.cfg):
+            self._skin.update(error="Скин на аккаунт ставится при входе Microsoft", status="")
+            self._draw_modal()
+            return
+        if self._skin["busy"]:
+            return
+        self._skin.update(busy=True, error="", status="")
+        self._draw_modal()
+        variant = str(self._skin.get("variant") or "classic")
+        target = Path(source)
+
+        def work() -> None:
+            try:
+                session = microsoft_core.ensure_session(self.cfg)
+                skins_core.upload(str(session.get("access_token") or ""), target, variant)
+            except Exception as exc:  # noqa: BLE001 - показываем пользователю
+                self._post(lambda message=str(exc): self._skin_applied("", message))
+                return
+            self._post(lambda: self._skin_applied("Скин поставлен на аккаунт", ""))
+
+        threading.Thread(target=work, daemon=True, name="skin-upload").start()
+
+    def _skin_applied(self, status: str, error: str) -> None:
+        self._skin.update(busy=False, status=status, error=error)
+        if status:
+            paths.save_config(self.cfg)
+            self._push_log(status)
+            self._skin_load_capes()
+        if self.modal == "skin":
+            self._draw_modal()
+
+    def _skin_load_capes(self) -> None:
+        if not microsoft_core.connected(self.cfg) or self._skin.get("capes_loading"):
+            return
+        self._skin.update(capes_loading=True)
+        if self.modal == "skin":
+            self._draw_modal()
+
+        def work() -> None:
+            try:
+                rows = microsoft_core.capes(self.cfg)
+            except Exception:  # noqa: BLE001 - плащи не критичны
+                rows = []
+            self._post(lambda: self._skin_capes_ready(rows))
+
+        threading.Thread(target=work, daemon=True, name="skin-capes").start()
+
+    def _skin_capes_ready(self, rows) -> None:
+        self._skin.update(capes=list(rows or []), capes_loading=False)
+        if self.modal == "skin":
+            self._draw_modal()
+
+    def _skin_open_capes(self) -> None:
+        from .pages import mods as mods_page
+
+        data = mods_page.state(self)
+        data.update(query="capes", page=0)
+        entry = self.entries.get("cat_query")
+        if entry is not None:
+            entry.delete(0, "end")
+            entry.insert(0, "capes")
+        self._close_modal(rebuild=False)
+        mods_page._search(self, True)
 
     def _skin_save(self) -> None:
         source = self._skin.get("path")
@@ -2910,7 +3310,13 @@ class Launcher(tk.Tk):
         save = CanvasButton(self, CX0 + 28, 584, CX0 + 208, 630, "Сохранить",
                             command=self._save_settings, kind="primary", size=10)
         self.page_buttons.append(save)
-        self.settings_hint = draw.text(cv, CX0 + 224, 607,
+        gc_btn = CanvasButton(self, CX0 + 224, 584, CX0 + 392, 630, "GigaChat",
+                              command=self._open_gigachat_modal, kind="ghost", size=9)
+        self.page_buttons.append(gc_btn)
+        report = CanvasButton(self, CX0 + 404, 584, CX0 + 560, 630, "Отчёт",
+                              command=self._export_diagnostics, kind="ghost", size=9)
+        self.page_buttons.append(report)
+        self.settings_hint = draw.text(cv, CX0 + 28, 650,
                                        "Java можно не указывать — найдётся сама.", 8,
                                        theme.DIM, "normal", "w", "page")
 
@@ -3051,6 +3457,261 @@ class Launcher(tk.Tk):
                                       text="Сохранено. Никнейм и память применятся при запуске.",
                                       fill=theme.ACCENT)
 
+    # ------------------------------------------------------------- GigaChat
+
+    def _open_gigachat_modal(self) -> None:
+        self.modal = "gigachat"
+        self._hide_entries()
+        for name in ("gc_id", "gc_secret", "gc_model"):
+            entry = self.entries.pop(name, None)
+            if entry is not None:
+                entry.destroy()
+        block = self.cfg.get("gigachat") or {}
+        self.gigachat_enabled = bool(block.get("enabled"))
+        self.gigachat_status = ""
+        self.gigachat_busy = False
+        self._draw_modal()
+
+    def _draw_gigachat(self, px0, px1, py0, py1) -> None:
+        cv = self.canvas
+        block = self.cfg.get("gigachat") or {}
+        draw.text(cv, px0 + 28, py0 + 34, "GigaChat", 14, theme.TEXT, "bold", "w", "modal")
+        draw.text(cv, px0 + 28, py0 + 56,
+                  "Ключи из кабинета developers.sber.ru · демо-доступ бесплатный",
+                  8, theme.MUTED, "normal", "w", "modal")
+        close = CanvasButton(self, px1 - 62, py0 + 20, px1 - 24, py0 + 52, "×",
+                             command=self._close_modal, kind="ghost", size=12)
+        self.modal_buttons.append(close)
+
+        y = py0 + 92
+        fields = (
+            ("gc_id", "client_id", str(block.get("client_id") or ""), False),
+            ("gc_secret", "client_secret", str(block.get("client_secret") or ""), True),
+            ("gc_model", "Модель", str(block.get("model") or "GigaChat"), False),
+        )
+        for name, label, value, secret in fields:
+            draw.text(cv, px0 + 28, y, label, 8, theme.DIM, "normal", "w", "modal")
+            draw.rr(cv, px0 + 28, y + 14, px1 - 28, y + 52, 10, fill=theme.FIELD,
+                    outline=theme.BORDER, tags="modal")
+            if name not in self.entries:
+                self._entry(name, value, secret=secret)
+            self._place_entry(name, px0 + 28, y + 14, px1 - px0 - 56, 38)
+            y += 70
+
+        toggle_y = y + 4
+        label = ("Разбор запросов включён" if getattr(self, "gigachat_enabled", False)
+                 else "Разбор запросов выключен")
+        toggle = CanvasButton(self, px0 + 28, toggle_y, px0 + 330, toggle_y + 38, label,
+                              command=self._toggle_gigachat,
+                              kind="primary" if getattr(self, "gigachat_enabled", False)
+                              else "ghost", size=9)
+        self.modal_buttons.append(toggle)
+        if getattr(self, "gigachat_status", ""):
+            draw.text(cv, px0 + 28, toggle_y + 60, str(self.gigachat_status)[:96], 8,
+                      theme.ACCENT, "normal", "w", "modal")
+
+        save = CanvasButton(self, px0 + 28, py1 - 58, px0 + 188, py1 - 20, "Сохранить",
+                            command=self._save_gigachat, kind="primary", size=9)
+        test = CanvasButton(self, px0 + 200, py1 - 58, px0 + 368, py1 - 20,
+                            "Проверить связь", command=self._test_gigachat, kind="ghost",
+                            size=9, enabled=not getattr(self, "gigachat_busy", False))
+        cancel = CanvasButton(self, px1 - 138, py1 - 58, px1 - 24, py1 - 20, "Закрыть",
+                              command=self._close_modal, kind="ghost", size=9)
+        self.modal_buttons.extend([save, test, cancel])
+
+    def _toggle_gigachat(self) -> None:
+        self.gigachat_enabled = not getattr(self, "gigachat_enabled", False)
+        self._draw_modal()
+
+    def _gigachat_values(self) -> dict:
+        def read(name: str, default: str = "") -> str:
+            entry = self.entries.get(name)
+            return entry.get().strip() if entry is not None else default
+
+        return {
+            "client_id": read("gc_id"),
+            "client_secret": read("gc_secret"),
+            "model": read("gc_model", "GigaChat") or "GigaChat",
+        }
+
+    def _save_gigachat(self) -> None:
+        block = self._gigachat_values()
+        block["enabled"] = bool(getattr(self, "gigachat_enabled", False))
+        self.cfg["gigachat"] = block
+        if paths.save_config(self.cfg):
+            self.gigachat_status = ("Сохранено, разбор включён" if block["enabled"]
+                                    else "Сохранено, разбор выключен")
+        else:
+            self.gigachat_status = "Не удалось сохранить настройки"
+        self._draw_modal()
+
+    def _test_gigachat(self) -> None:
+        if getattr(self, "gigachat_busy", False):
+            return
+        values = self._gigachat_values()
+        if not values["client_id"] or not values["client_secret"]:
+            self.gigachat_status = "Заполните client_id и client_secret"
+            self._draw_modal()
+            return
+        self.gigachat_busy = True
+        self.gigachat_status = "Проверяю ключи…"
+        self._draw_modal()
+
+        def work() -> None:
+            try:
+                client = gigachat_core.GigaChat(values["client_id"],
+                                                values["client_secret"],
+                                                values["model"])
+                client.token()
+                status = "Ключи приняты, связь есть"
+            except Exception as exc:  # noqa: BLE001 - показываем причину
+                status = f"Ошибка: {exc}"
+            self.gigachat_busy = False
+            self.gigachat_status = status[:120]
+            self._post(lambda: self._draw_modal() if self.modal == "gigachat" else None)
+
+        threading.Thread(target=work, daemon=True, name="gigachat-test").start()
+
+    def _export_diagnostics(self) -> None:
+        self._push_log("Собираю отчёт диагностики…")
+
+        def work() -> None:
+            try:
+                path = diagnostics_core.export(self.cfg)
+                self._push_log_threadsafe(f"Отчёт сохранён: {path}")
+                self._post(lambda: messagebox.showinfo(
+                    i18n.tr("Диагностика"), f"{i18n.tr('Отчёт сохранён')}:\n{path}"))
+            except Exception as exc:  # noqa: BLE001 - показываем причину
+                self._push_log_threadsafe(f"Отчёт не собрался: {exc}")
+
+        threading.Thread(target=work, daemon=True, name="diagnostics").start()
+
+    # ------------------------------------------------------------- новости
+
+    def _open_news_modal(self) -> None:
+        self.modal = "news"
+        self._hide_entries()
+        self.news_items = []
+        self.news_busy = True
+        self.news_error = ""
+        self._draw_modal()
+
+        def work() -> None:
+            try:
+                items = news_core.news(4)
+                error = ""
+            except Exception as exc:  # noqa: BLE001 - показываем причину
+                items, error = [], str(exc)
+            self.news_items = items
+            self.news_busy = False
+            self.news_error = error
+            self._post(lambda: self._draw_modal() if self.modal == "news" else None)
+
+        threading.Thread(target=work, daemon=True, name="news").start()
+
+    def _draw_news(self, px0, px1, py0, py1) -> None:
+        cv = self.canvas
+        draw.text(cv, px0 + 28, py0 + 34, "Новости Minecraft", 14, theme.TEXT, "bold", "w",
+                  "modal")
+        draw.text(cv, px0 + 28, py0 + 56,
+                  "Официальные новости Mojang · нажмите на карточку, чтобы открыть",
+                  8, theme.MUTED, "normal", "w", "modal")
+        close = CanvasButton(self, px1 - 62, py0 + 20, px1 - 24, py0 + 52, "×",
+                             command=self._close_modal, kind="ghost", size=12)
+        self.modal_buttons.append(close)
+
+        if getattr(self, "news_busy", False):
+            draw.text(cv, px0 + 28, py0 + 100, "Загружаю новости…", 9, theme.MUTED,
+                      "normal", "w", "modal")
+        elif getattr(self, "news_error", ""):
+            draw.text(cv, px0 + 28, py0 + 100, str(self.news_error)[:110], 8, theme.DANGER,
+                      "normal", "w", "modal", width=px1 - px0 - 56)
+        else:
+            for index, item in enumerate((getattr(self, "news_items", None) or [])[:4]):
+                y = py0 + 84 + index * 62
+                tag = f"news_{index}"
+                draw.rr(cv, px0 + 24, y, px1 - 24, y + 56, 10, fill=theme.CARD,
+                        outline=theme.BORDER, tags=("modal", tag))
+                draw.text(cv, px0 + 38, y + 14,
+                          f"{item.get('date') or ''} · {item.get('tag') or ''}"[:48], 7,
+                          theme.DIM, "normal", "w", ("modal", tag))
+                draw.text(cv, px0 + 38, y + 30, str(item.get("title") or "")[:64], 9,
+                          theme.TEXT, "bold", "w", ("modal", tag))
+                draw.text(cv, px0 + 38, y + 44, str(item.get("text") or "")[:88], 7,
+                          theme.MUTED, "normal", "w", ("modal", tag))
+                url = str(item.get("url") or "")
+                if url:
+                    cv.tag_bind(tag, "<Button-1>", lambda _e, link=url: webbrowser.open(link))
+                    cv.tag_bind(tag, "<Enter>", lambda _e: cv.configure(cursor="hand2"))
+                    cv.tag_bind(tag, "<Leave>", lambda _e: cv.configure(cursor=""))
+            if not (getattr(self, "news_items", None) or []):
+                draw.text(cv, px0 + 28, py0 + 100, "Новостей пока нет.", 9, theme.DIM,
+                          "normal", "w", "modal")
+
+        done = CanvasButton(self, px1 - 138, py1 - 58, px1 - 24, py1 - 20, "Закрыть",
+                            command=self._close_modal, kind="ghost", size=9)
+        self.modal_buttons.append(done)
+
+    # ------------------------------------------------------------- краш-лог
+
+    def _open_crash_modal(self) -> None:
+        self.modal = "crash"
+        self._hide_entries()
+        self.crash_data = crash_core.scan(self._data_dir())
+        self._draw_modal()
+
+    def _draw_crash(self, px0, px1, py0, py1) -> None:
+        cv = self.canvas
+        draw.text(cv, px0 + 28, py0 + 34, "Краш-лог", 14, theme.TEXT, "bold", "w", "modal")
+        close = CanvasButton(self, px1 - 62, py0 + 20, px1 - 24, py0 + 52, "×",
+                             command=self._close_modal, kind="ghost", size=12)
+        self.modal_buttons.append(close)
+        data = getattr(self, "crash_data", None)
+        if not data:
+            draw.text(cv, px0 + 28, py0 + 76, "Свежих краш-логов нет.", 12, theme.TEXT,
+                      "bold", "w", "modal")
+            draw.text(cv, px0 + 28, py0 + 104,
+                      "Папка crash-reports пуста: игра не падала или падения не записались.",
+                      8, theme.MUTED, "normal", "w", "modal", width=px1 - px0 - 56)
+        else:
+            draw.text(cv, px0 + 28, py0 + 58, str(data.get("name") or "")[:70], 8,
+                      theme.DIM, "normal", "w", "modal")
+            draw.text(cv, px0 + 28, py0 + 84, "Описание", 8, theme.MUTED, "normal", "w",
+                      "modal")
+            draw.text(cv, px0 + 28, py0 + 100, str(data.get("summary") or "")[:400], 9,
+                      theme.TEXT, "bold", "w", "modal", width=px1 - px0 - 56)
+            y = py0 + 156
+            caused = data.get("caused") or []
+            if caused:
+                draw.text(cv, px0 + 28, y, "Причина", 9, theme.MUTED, "bold", "w", "modal")
+                y += 22
+                for line in caused:
+                    draw.text(cv, px0 + 36, y, str(line)[:120], 8, theme.TEXT, "normal",
+                              "w", "modal", width=px1 - px0 - 72)
+                    y += 34
+            mods = data.get("mods") or []
+            if mods:
+                draw.text(cv, px0 + 28, y + 6, "Подозреваемые моды", 9, theme.MUTED,
+                          "bold", "w", "modal")
+                draw.text(cv, px0 + 28, y + 26, ", ".join(mods)[:220], 8, theme.WARNING,
+                          "normal", "w", "modal", width=px1 - px0 - 56)
+
+        folder = CanvasButton(self, px0 + 28, py1 - 58, px0 + 208, py1 - 20,
+                              "Папка логов", command=self._open_crash_folder,
+                              kind="ghost", size=9)
+        done = CanvasButton(self, px1 - 138, py1 - 58, px1 - 24, py1 - 20, "Закрыть",
+                            command=self._close_modal, kind="ghost", size=9)
+        self.modal_buttons.extend([folder, done])
+
+    def _open_crash_folder(self) -> None:
+        folder = crash_core.reports_dir(self._data_dir())
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(folder))  # noqa: S606 - открытие проводника
+            self._push_log(f"Краш-логи: {folder}")
+        except OSError as exc:
+            self._push_log(f"Папка крашей не открылась: {exc}")
+
     # ------------------------------------------------------------------- о нас
 
     # ------------------------------------------------------------------ список
@@ -3065,7 +3726,7 @@ class Launcher(tk.Tk):
 
         def run():
             try:
-                data = version_core.releases(self._data_dir())
+                data = version_core.catalogue(self._data_dir())
                 error = ""
             except Exception as exc:  # noqa: BLE001 - без сети списка нет
                 data = []
@@ -3231,8 +3892,7 @@ class Launcher(tk.Tk):
         self.java_required = needed
         found = java_core.find_java(needed, self.cfg.get("java_path", ""))
         if not found:
-            self._push_log(f"{version_id}: нужна Java {needed} — кнопка «Скачать Java» в настройках.")
-            return
+            self._push_log(f"{version_id}: нужна Java {needed} — скачаю её сам перед запуском.")
         nickname = (self.cfg.get("nickname") or "Steve").strip()[:16] or "Steve"
         data_dir = self._data_dir()
 
@@ -3252,7 +3912,10 @@ class Launcher(tk.Tk):
             if self.page == "library":
                 self._show_page("library")
 
-        self._push_log(f"Запускаю {version_id} на Java {found[1]}…")
+        if found:
+            self._push_log(f"Запускаю {version_id} на Java {found[1]}…")
+        else:
+            self._push_log(f"Запускаю {version_id} — Java {needed} подставится автоматически")
         if server_address:
             self._push_log(f"Автоподключение к серверу {server_address}")
         self._set_stage("Запускаю игру")
@@ -3278,6 +3941,18 @@ class Launcher(tk.Tk):
 
         def run():
             started = time.time()
+            java = found[0] if found else None
+            if java is None:
+                self._push_log_threadsafe(f"Скачиваю Java {needed} с Adoptium…")
+                try:
+                    java, major = java_core.ensure_java(needed, log=self._push_log_threadsafe)
+                except Exception as exc:  # noqa: BLE001 - показываем пользователю
+                    self.launching_id = None
+                    self._push_log_threadsafe(f"Java {needed} не скачалась: {exc}")
+                    self._set_stage("Нет Java")
+                    self._post(self._refresh_launch_state)
+                    return
+                self._push_log_threadsafe(f"Java {major} готова: {java}")
             server = None
             if server_address:
                 server = servers_core.resolve_address(server_address)
@@ -3307,7 +3982,7 @@ class Launcher(tk.Tk):
             try:
                 process, log_path = launch_core.launch(
                     data_dir, version_id, active_nick, ram,
-                    found[0], server, session, jvm_args, game_dir,
+                    java, server, session, jvm_args, game_dir,
                 )
             except launch_core.LaunchError as exc:
                 self.launching_id = None

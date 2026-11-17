@@ -1,8 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import hashlib
 import json
 import os
+import random
+import ssl
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -27,6 +30,80 @@ class DownloadCancelled(Exception):
     pass
 
 
+RETRY_BASE = 0.8
+RETRY_MAX = 8.0
+_NO_RETRY = {400, 401, 403, 404, 405, 410}
+
+_UNSET = object()
+_SSL_CONTEXT: object = _UNSET
+
+
+def _retryable(exc: Exception) -> bool:
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code not in _NO_RETRY
+    return True
+
+
+def _retry_delay(attempt: int, exc: Exception | None = None) -> float:
+    """Пауза перед повтором: Retry-After сервера или рост с джиттером."""
+    if isinstance(exc, urllib.error.HTTPError) and exc.headers:
+        header = exc.headers.get("Retry-After")
+        if header:
+            try:
+                return max(0.0, min(60.0, float(header)))
+            except (TypeError, ValueError):
+                pass
+    base = min(RETRY_MAX, RETRY_BASE * (2 ** max(0, attempt)))
+    return min(RETRY_MAX, base * (0.7 + random.random() * 0.6))
+
+
+def _ca_file() -> str | None:
+    """Ищет cacert.pem: рядом с exe, в распакованной сборке, в certifi."""
+    roots = []
+    meipass = getattr(sys, "_MEIPASS", "")
+    if meipass:
+        roots.append(Path(meipass))
+    roots.append(Path(sys.executable).resolve().parent)
+    for root in roots:
+        candidate = root / "certifi" / "cacert.pem"
+        if candidate.is_file():
+            return str(candidate)
+    try:
+        import certifi
+    except ImportError:
+        return None
+    path = certifi.where()
+    return path if os.path.isfile(path) else None
+
+
+def _ssl_context() -> ssl.SSLContext | None:
+    """Контекст TLS с корневыми сертификатами certifi, если они есть в сборке.
+
+    На Windows 7 хранилище корневых сертификатов бывает устаревшим, и HTTPS к
+    Mojang падает. certifi идёт в комплекте, поэтому проверку делаем по нему.
+    """
+    global _SSL_CONTEXT
+    if _SSL_CONTEXT is not _UNSET:
+        return _SSL_CONTEXT
+    cafile = _ca_file()
+    if not cafile:
+        _SSL_CONTEXT = None
+        return _SSL_CONTEXT
+    try:
+        _SSL_CONTEXT = ssl.create_default_context(cafile=cafile)
+    except (OSError, ssl.SSLError):
+        _SSL_CONTEXT = None
+    return _SSL_CONTEXT
+
+
+def _open(request: urllib.request.Request, timeout: int):
+    """urlopen с контекстом certifi, если он есть в сборке."""
+    context = _ssl_context()
+    if context is None:
+        return urllib.request.urlopen(request, timeout=timeout)
+    return urllib.request.urlopen(request, timeout=timeout, context=context)
+
+
 def _request(url: str, headers: dict | None = None) -> urllib.request.Request:
     merged = {
         "User-Agent": USER_AGENT,
@@ -42,12 +119,14 @@ def fetch_json(url: str, timeout: int = 30, retries: int = 4):
     last: Exception | None = None
     for attempt in range(retries):
         try:
-            with urllib.request.urlopen(_request(url), timeout=timeout) as resp:
+            with _open(_request(url), timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except Exception as exc:  # noqa: BLE001 - сеть бывает любой
             last = exc
+            if not _retryable(exc):
+                break
             if attempt < retries - 1:
-                time.sleep(1.2 * (attempt + 1))
+                time.sleep(_retry_delay(attempt, exc))
     raise DownloadError(f"Не удалось получить {url}: {last}")
 
 
@@ -55,12 +134,14 @@ def fetch_text(url: str, timeout: int = 30, retries: int = 4) -> str:
     last: Exception | None = None
     for attempt in range(retries):
         try:
-            with urllib.request.urlopen(_request(url), timeout=timeout) as resp:
+            with _open(_request(url), timeout) as resp:
                 return resp.read().decode("utf-8", errors="replace")
         except Exception as exc:  # noqa: BLE001
             last = exc
+            if not _retryable(exc):
+                break
             if attempt < retries - 1:
-                time.sleep(1.2 * (attempt + 1))
+                time.sleep(_retry_delay(attempt, exc))
     raise DownloadError(f"Не удалось получить {url}: {last}")
 
 
@@ -146,7 +227,7 @@ def download(
 
         headers = {"Range": f"bytes={offset}-"} if offset else None
         try:
-            with urllib.request.urlopen(_request(url, headers), timeout=timeout) as resp:
+            with _open(_request(url, headers), timeout) as resp:
                 status = int(getattr(resp, "status", 200) or 200)
                 if offset and status != 206:
                     # Сервер проигнорировал Range: качаем файл заново.
@@ -185,6 +266,8 @@ def download(
             if reset:
                 tmp.unlink(missing_ok=True)
                 report(-counted)
+            if not _retryable(exc):
+                break
             if attempt < retries - 1:
-                time.sleep(1.2 * (attempt + 1))
+                time.sleep(_retry_delay(attempt, exc))
     raise DownloadError(f"Не удалось скачать {url}: {last}")

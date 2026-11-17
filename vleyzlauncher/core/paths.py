@@ -8,7 +8,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import secure
+from . import config_check, fsutil, secure
+from .events import bus
 from .. import APP_VERSION, i18n
 
 log = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ INSTALL_MARKER = ".vleyz-install"
 DATA_MARKER = ".vleyzlauncher"
 PORTABLE_MARKER = ".vleyz-portable"
 DEFAULT_NICKNAME = "Steve"
-CONFIG_VERSION = 2
+CONFIG_VERSION = 3
 
 CONFIG_DEFAULTS = {
     "config_version": CONFIG_VERSION,
@@ -38,6 +39,13 @@ CONFIG_DEFAULTS = {
     "microsoft_auth": {},
     "account_mode": "offline",
     "servers": [],
+    "favorites": [],
+    "gigachat": {
+        "client_id": "",
+        "client_secret": "",
+        "model": "GigaChat",
+        "enabled": False,
+    },
 }
 
 # Что нельзя хранить открытым текстом. Пароль Ely.by нужен для
@@ -45,6 +53,7 @@ CONFIG_DEFAULTS = {
 SECRET_FIELDS = {
     "ely_auth": ("login", "password", "client_token", "access_token"),
     "microsoft_auth": ("refresh_token", "access_token"),
+    "gigachat": ("client_secret",),
 }
 
 
@@ -280,6 +289,22 @@ def _migrate_config(cfg: dict, stored_version: object = None) -> bool:
     return True
 
 
+def _normalize_gigachat(cfg: dict) -> bool:
+    """Блок GigaChat всегда полный: конфиги до 1.9.6 его не знают."""
+    defaults = CONFIG_DEFAULTS["gigachat"]
+    block = cfg.get("gigachat")
+    if not isinstance(block, dict):
+        block = {}
+    updated = dict(block)
+    for key, value in defaults.items():
+        if not isinstance(updated.get(key), type(value)):
+            updated[key] = value
+    if updated != block:
+        cfg["gigachat"] = updated
+        return True
+    return False
+
+
 def load_config() -> dict:
     cfg = dict(CONFIG_DEFAULTS)
     _migrate_legacy()
@@ -297,6 +322,12 @@ def load_config() -> dict:
             cfg.update(stored)
     cfg = _map_secrets(cfg, secure.unprotect)
     changed = _migrate_config(cfg, stored_version)
+    if _normalize_gigachat(cfg):
+        changed = True
+    cfg, repaired = config_check.validate(cfg)
+    if repaired:
+        changed = True
+        log.info("конфиг починен: %s", ", ".join(repaired[:8]))
     stored_dir = str(cfg.get("data_dir") or "")
     if is_portable():
         # Переносимая установка главнее старого абсолютного пути из конфига:
@@ -315,23 +346,19 @@ def load_config() -> dict:
 
 def save_config(cfg: dict) -> bool:
     """Атомарно сохранить конфиг, зашифровав секреты. True — записалось."""
-    data = _map_secrets(cfg, secure.protect)
-    path = config_path()
-    tmp = path.with_name(path.name + ".tmp")
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(tmp, "w", encoding="utf-8", newline="\n") as handle:
-            json.dump(data, handle, ensure_ascii=False, indent=2)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, path)
+        data = _map_secrets(cfg, secure.protect)
+    except OSError as exc:
+        log.error("конфиг не сохранён: не удалось защитить секреты (%s)", exc)
+        return False
+    path = config_path()
+    text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    try:
+        fsutil.atomic_write_text(path, text)
+        bus.emit("config.saved", path=path)
         return True
     except OSError as exc:
         log.error("не удалось сохранить настройки %s: %s", path, exc)
-        try:
-            tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
         return False
 
 

@@ -1,5 +1,7 @@
-# сборка
+﻿# СЃР±РѕСЂРєР°
 build/
+build-*/
+dist-*/
 dist/
 *.spec.bak
 
@@ -10,7 +12,7 @@ __pycache__/
 .venv/
 venv/
 
-# личные данные и состояние
+# Р»РёС‡РЅС‹Рµ РґР°РЅРЅС‹Рµ Рё СЃРѕСЃС‚РѕСЏРЅРёРµ
 config.json
 config.json.*
 dist/config.json
@@ -18,11 +20,11 @@ dist/config.json.*
 logs/
 *.log
 
-# служебные папки инструментов
+# СЃР»СѓР¶РµР±РЅС‹Рµ РїР°РїРєРё РёРЅСЃС‚СЂСѓРјРµРЅС‚РѕРІ
 .freebuff/
 .vscode/
 .idea/
 
-# мусор
+# РјСѓСЃРѕСЂ
 Thumbs.db
 desktop.ini

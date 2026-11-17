@@ -6,7 +6,7 @@ import json
 import urllib.parse
 from pathlib import Path
 
-from . import net, safepath
+from . import fsutil, net, safepath
 
 API = "https://api.modrinth.com/v2"
 PAGE_LIMIT = 12
@@ -269,7 +269,11 @@ def install(
     cancel=None,
     on_progress=None,
 ) -> dict:
-    """Скачивает файлы в папку модов. Уже целые файлы пропускает."""
+    """Скачивает файлы в папку модов. Уже целые файлы пропускает.
+
+    Сначала всё качается в подпапку-стадию, затем переносится на место:
+    при обрыве на середине папка модов остаётся прежней.
+    """
     log = log or (lambda message: None)
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
@@ -277,31 +281,40 @@ def install(
     installed: list[str] = []
     skipped: list[str] = []
     total = len(files)
-    for index, item in enumerate(files, start=1):
-        if cancel is not None and cancel.is_set():
-            raise net.DownloadCancelled()
-        filename = safepath.sanitize_name(
-            Path(str(item.get("filename") or "mod.jar")).name, "mod.jar"
-        )
-        if not filename:
-            continue
-        target = destination / filename
-        if net.file_is_valid(target, item.get("sha1"), item.get("size") or None):
-            skipped.append(filename)
-            log(f"[{index}/{total}] уже установлен: {filename}")
+    transaction = fsutil.FolderTransaction(destination)
+    try:
+        for index, item in enumerate(files, start=1):
+            if cancel is not None and cancel.is_set():
+                raise net.DownloadCancelled()
+            filename = safepath.sanitize_name(
+                Path(str(item.get("filename") or "mod.jar")).name, "mod.jar"
+            )
+            if not filename:
+                continue
+            target = destination / filename
+            if net.file_is_valid(target, item.get("sha1"), item.get("size") or None):
+                skipped.append(filename)
+                log(f"[{index}/{total}] уже установлен: {filename}")
+                if on_progress is not None:
+                    on_progress(index, total, item)
+                continue
+            log(f"[{index}/{total}] скачиваю {item.get('title') or filename}")
+            staged = transaction.stage(filename)
+            net.download(
+                str(item["url"]),
+                staged,
+                item.get("sha1"),
+                int(item.get("size") or 0) or None,
+                cancel=cancel,
+                sha512=item.get("sha512") or None,
+            )
+            installed.append(filename)
             if on_progress is not None:
                 on_progress(index, total, item)
-            continue
-        log(f"[{index}/{total}] скачиваю {item.get('title') or filename}")
-        net.download(
-            str(item["url"]),
-            target,
-            item.get("sha1"),
-            int(item.get("size") or 0) or None,
-            cancel=cancel,
-            sha512=item.get("sha512") or None,
-        )
-        installed.append(filename)
-        if on_progress is not None:
-            on_progress(index, total, item)
+        transaction.commit()
+    except BaseException:
+        transaction.rollback()
+        raise
+    finally:
+        transaction.close()
     return {"installed": installed, "skipped": skipped, "total": total}

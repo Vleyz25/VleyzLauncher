@@ -12,12 +12,25 @@ from typing import TYPE_CHECKING, Callable
 if TYPE_CHECKING:
     from ..app import Launcher
 
-from . import about, library  # noqa: E402 - импорт после типа, чтобы не плодить циклы
+from . import about, builder, library, modpacks, mods  # noqa: E402
 
 PAGES: dict[str, Callable[["Launcher"], None]] = {
     "about": about.draw_page,
     "library": library.draw_page,
+    "mods": mods.draw_page,
+    "builder": builder.draw_page,
+    "modpacks": modpacks.draw_page,
 }
+
+
+def draw_detail(app: "Launcher", *bounds) -> None:
+    """Карточка мода рисуется внутри общей модалки приложения."""
+    mods.draw_detail(app, *bounds)
+
+
+def draw_pack_detail(app: "Launcher", *bounds) -> None:
+    """Карточка модпака."""
+    modpacks.draw_detail(app, *bounds)
 
 
 def draw(page: str, app: "Launcher") -> bool:
