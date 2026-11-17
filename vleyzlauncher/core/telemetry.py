@@ -16,7 +16,7 @@ from . import net, paths
 
 log = logging.getLogger(__name__)
 
-COUNTER_URL = "https://abacus.jasoncameron.dev/hit/vleyzlauncher/installs"
+COUNTER_URL = "https://abacus.jasoncameron.dev/hit/vleyzlauncher-ru/installs"
 MARKER = ".install-ping"
 TIMEOUT = 6.0
 

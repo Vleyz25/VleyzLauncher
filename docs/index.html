@@ -416,7 +416,7 @@
   // статистика: скачивания файлов из GitHub и установки по счётчику лаунчера
   (function(){
     var REPO='Vleyz25/VleyzLauncher';
-    var BASE_INSTALLS=3;  // установки до подключения счётчика
+    var BASE_INSTALLS=2;  // установки до счётчика (тестовая установка учтена в счётчике)
     function num(n){ try { return Number(n||0).toLocaleString('ru-RU'); } catch(e){ return String(n||0); } }
     function countOnce(url, apply, attempt){
       fetch(url,{cache:'no-store'})
@@ -452,7 +452,7 @@
           note.textContent=parts.join(' · ');
         }
       }).catch(function(){});
-    countOnce('https://abacus.jasoncameron.dev/hit/vleyzlauncher/installs', function(v){
+    countOnce('https://abacus.jasoncameron.dev/hit/vleyzlauncher-ru/installs', function(v){
       var all=BASE_INSTALLS+v;
       var el=document.getElementById('stat-installs'); if(el) el.textContent=all.toLocaleString('ru-RU');
       var chip=document.getElementById('dls'); if(chip) chip.textContent=all.toLocaleString('ru-RU');
