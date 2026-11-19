@@ -311,7 +311,13 @@
     <h2 class="sec-title reveal">Windows 7: как установить</h2>
     <p class="sec-sub reveal">Отдельная сборка не нужна — с версии 2.0.3 всё работает в одном установщике, нужные библиотеки лежат внутри.</p>
     <div class="panel reveal">
-      <p style="margin:0 0 14px;color:var(--muted)">Подходит Windows 7 <b>SP1 x64</b>. Обновления Windows и Visual C++ ставить не нужно.</p>
+      <p style="margin:0 0 14px;padding:12px 14px;border-left:3px solid #e0a33a;background:rgba(224,163,58,.08);color:var(--muted)">
+        <b>Обязательно: Windows 7 с пакетом обновления 1 (SP1), 64-бит.</b> Без SP1 лаунчер не запустится — это требование самого движка Python, а не наша прихоть.
+        Проверить: правый клик по «Компьютер» → «Свойства» → в разделе «Система» должно быть написано
+        «Пакет обновления 1 (SP1)». Если его нет — «Центр обновления Windows» → «Установить обновления»;
+        офлайн-пакет SP1 можно скачать с сайта Microsoft.
+        Сами библиотеки Visual C++ и обновления CRT не нужны: они уже лежат внутри установщика.
+      </p>
       <p style="margin:0 0 18px">
         <a class="btn" href="https://github.com/Vleyz25/VleyzLauncher/releases/latest/download/VleyzLauncher-Setup.exe" rel="noopener">Скачать для Windows 7</a>
       </p>
@@ -374,6 +380,7 @@
     <h2 class="sec-title reveal">Частые вопросы</h2>
     <p class="sec-sub reveal">Коротко о том, что спрашивают чаще всего.</p>
     <div class="faq">
+    <details class="reveal"><summary>У меня Windows 7 и лаунчер не запускается</summary><div class="a">Проверь пакет обновления: «Компьютер» → «Свойства» → «Система», там должно быть «Пакет обновления 1 (SP1)». Без SP1 не запустится ни один лаунчер на Python — движку нужны функции системы, которых в исходной Windows 7 нет. Поставь SP1 через «Центр обновления Windows» (около 900 МБ, бесплатно), перезагрузись и запусти установщик 2.0.3 заново — он уже содержит нужные библиотеки, дополнительно ничего ставить не надо. Версии игры на Windows 7 доступны до 1.16.5.</div></details>
       <details class="reveal"><summary>Куда скачивается игра?</summary><div class="a">По умолчанию в <code>%APPDATA%\VleyzLauncher\minecraft</code>. Папку можно поменять в настройках. Твой обычный <code>.minecraft</code> лаунчер не трогает.</div></details>
       <details class="reveal"><summary>Где настройки, аккаунты и логи?</summary><div class="a">В <code>%APPDATA%\VleyzLauncher</code>: <code>config.json</code> и папка <code>logs</code>. Пароль и токены Ely.by, токены Microsoft шифруются через Windows DPAPI и не читаются на другом ПК.</div></details>
       <details class="reveal"><summary>Как обновляться?</summary><div class="a">Лаунчер сам проверяет релизы на GitHub при запуске. Если вышла новая версия, появляется окно с предложением обновиться: установщик скачивается, сверяется SHA256, ставится поверх, лаунчер перезапускается сам. Профили, миры и настройки сохраняются. Можно и вручную поставить новый <code>VleyzLauncher-Setup.exe</code>.</div></details>
