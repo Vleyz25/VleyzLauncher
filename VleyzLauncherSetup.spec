@@ -1,9 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from pathlib import Path
+
+# UCRT рядом с exe: без него установщик не запустится на Windows 7
+UCRT = sorted(str(path) for path in Path('vendor/ucrt64').glob('*.dll'))
+
 a = Analysis(
     ['tools/installer/setup.py'],
     pathex=[],
-    binaries=[],
+    binaries=[(name, '.') for name in UCRT],
     datas=[('dist/VleyzLauncher.exe', 'payload')],
     hiddenimports=[],
     hookspath=[],

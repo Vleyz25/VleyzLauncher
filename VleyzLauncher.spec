@@ -1,10 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from pathlib import Path
+
+# UCRT рядом с exe: на Windows 7 без обновления KB2999226 иначе не грузится python38.dll
+UCRT = sorted(str(path) for path in Path('vendor/ucrt64').glob('*.dll'))
 
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
+    binaries=[(name, '.') for name in UCRT],
     datas=[('assets', 'assets')],
     hiddenimports=[],
     hookspath=[],
