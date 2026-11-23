@@ -2246,5 +2246,64 @@ class TelemetryTests(unittest.TestCase):
             self.assertTrue((base / telemetry.MARKER).is_file())
 
 
+class CrashDiagnoseTests(unittest.TestCase):
+    def test_incompatible_mod_model(self) -> None:
+        text = (
+            "Description: Rendering overlay\n"
+            "java.lang.IllegalArgumentException: Failed to create model for luckytowers:lucky_bot\n"
+            "Caused by: java.util.NoSuchElementException: Can't find part ear\n"
+        )
+        result = crash.analyze(text)
+        self.assertEqual(result["mod"], "luckytowers")
+        self.assertIn("luckytowers", result["cause"])
+        self.assertIn("ear", result["cause"])
+        self.assertTrue(result["advice"])
+
+    def test_out_of_memory(self) -> None:
+        result = crash.analyze("Description: Ticking\njava.lang.OutOfMemoryError: Java heap space")
+        self.assertIn("памяти", result["cause"])
+        self.assertIn("4096", result["advice"])
+
+    def test_missing_dependencies(self) -> None:
+        text = (
+            "Description: Mod loading\n"
+            "Missing or unsupported mandatory dependencies:\n"
+            "\tMod ID: 'geckolib', Requested by: 'verity'\n"
+        )
+        result = crash.analyze(text)
+        self.assertIn("зависимост", result["cause"])
+        self.assertEqual(result["mod"], "geckolib")
+
+    def test_duplicate_mods(self) -> None:
+        result = crash.analyze("Description: Loading\nFound duplicate mods:\n\tmod.jar")
+        self.assertIn("два одинаковых", result["cause"])
+
+    def test_unknown_crash_has_no_advice(self) -> None:
+        result = crash.analyze("Description: Something\nsome random stack")
+        self.assertEqual(result["cause"], "")
+        self.assertEqual(result["advice"], "")
+
+
+class ModVersionRangeTests(unittest.TestCase):
+    def test_range_bounds(self) -> None:
+        self.assertTrue(modmeta.range_accepts("[1.20,1.21)", "1.20.1"))
+        self.assertTrue(modmeta.range_accepts("[1.20.1,1.20.2]", "1.20.1"))
+        self.assertFalse(modmeta.range_accepts("[1.21,1.22)", "1.20.1"))
+        self.assertFalse(modmeta.range_accepts("(1.20.1,1.21)", "1.20.1"))
+        self.assertTrue(modmeta.range_accepts("*", "1.20.1"))
+
+    def test_unknown_format_is_not_a_problem(self) -> None:
+        self.assertTrue(modmeta.range_accepts("1.20.*", "1.20.1"))
+        self.assertTrue(modmeta.range_accepts("", "1.20.1"))
+
+    def test_mismatch_finds_foreign_mod(self) -> None:
+        records = [
+            {"id": "good", "name": "Good", "file": "good.jar", "minecraft_range": "[1.20,1.21)"},
+            {"id": "bad", "name": "Bad", "file": "bad.jar", "minecraft_range": "[1.21,1.22)"},
+        ]
+        found = modmeta.minecraft_mismatch(records, "1.20.1")
+        self.assertEqual([item["id"] for item in found], ["bad"])
+
+
 if __name__ == "__main__":
     unittest.main()

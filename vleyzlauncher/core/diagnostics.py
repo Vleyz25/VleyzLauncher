@@ -102,6 +102,12 @@ def instance_issues(cfg: dict, instance_id: str,
         issues.append(f"Дублируется мод {group['id']}: {', '.join(group['files'])}")
     for missing in modmeta.missing_dependencies(records)[:5]:
         issues.append(f"{missing['mod']} требует {missing['dep']}")
+    game = str(row.get("game") or "")
+    for mismatch in modmeta.minecraft_mismatch(records, game)[:5]:
+        issues.append(
+            f"Мод {mismatch['mod']} собран под Minecraft {mismatch['range']}, "
+            f"а сборка на {game}: возможны падения"
+        )
     return issues
 
 

@@ -3680,7 +3680,23 @@ class Launcher(tk.Tk):
                       "modal")
             draw.text(cv, px0 + 28, py0 + 100, str(data.get("summary") or "")[:400], 9,
                       theme.TEXT, "bold", "w", "modal", width=px1 - px0 - 56)
-            y = py0 + 156
+            y = py0 + 148
+            cause = str(data.get("cause") or "").strip()
+            advice = str(data.get("advice") or "").strip()
+            if cause:
+                draw.text(cv, px0 + 28, y, "Что случилось", 9, theme.MUTED, "bold", "w",
+                          "modal")
+                y += 20
+                draw.text(cv, px0 + 28, y, cause[:300], 9, theme.WARNING, "bold", "w",
+                          "modal", width=px1 - px0 - 56)
+                y += 44
+            if advice:
+                draw.text(cv, px0 + 28, y, "Что делать", 9, theme.MUTED, "bold", "w",
+                          "modal")
+                y += 20
+                draw.text(cv, px0 + 28, y, advice[:400], 8, theme.TEXT, "normal", "w",
+                          "modal", width=px1 - px0 - 56)
+                y += 46
             caused = data.get("caused") or []
             if caused:
                 draw.text(cv, px0 + 28, y, "Причина", 9, theme.MUTED, "bold", "w", "modal")
@@ -3696,12 +3712,44 @@ class Launcher(tk.Tk):
                 draw.text(cv, px0 + 28, y + 26, ", ".join(mods)[:220], 8, theme.WARNING,
                           "normal", "w", "modal", width=px1 - px0 - 56)
 
+        culprit = ""
+        if data:
+            mod_id = str(data.get("mod") or "").strip().lower()
+            if mod_id:
+                try:
+                    for item in mods_core.list_mods(self._data_dir(), self.installed_id):
+                        if item.get("enabled") and mod_id in str(item["name"]).lower():
+                            culprit = str(item["name"])
+                            break
+                except OSError:
+                    culprit = ""
+        self.crash_mod = culprit
+
         folder = CanvasButton(self, px0 + 28, py1 - 58, px0 + 208, py1 - 20,
                               "Папка логов", command=self._open_crash_folder,
                               kind="ghost", size=9)
+        self.modal_buttons.append(folder)
+        if culprit:
+            disable = CanvasButton(self, px0 + 220, py1 - 58, px0 + 418, py1 - 20,
+                                   "Отключить мод", command=self._disable_crash_mod,
+                                   kind="primary", size=9)
+            self.modal_buttons.append(disable)
         done = CanvasButton(self, px1 - 138, py1 - 58, px1 - 24, py1 - 20, "Закрыть",
                             command=self._close_modal, kind="ghost", size=9)
-        self.modal_buttons.extend([folder, done])
+        self.modal_buttons.extend([done])
+
+    def _disable_crash_mod(self) -> None:
+        """Отключает мод, из-за которого игра упала."""
+        name = str(getattr(self, "crash_mod", "") or "")
+        if not name:
+            return
+        if mods_core.set_enabled(self._data_dir(), name, False, self.installed_id):
+            self._push_log(f"Мод отключён: {name}")
+            self.crash_mod = ""
+            self.crash_data = crash_core.scan(self._data_dir())
+            self._show_page(self.page)
+        else:
+            self._push_log(f"Не удалось отключить мод {name}")
 
     def _open_crash_folder(self) -> None:
         folder = crash_core.reports_dir(self._data_dir())
